@@ -2,6 +2,7 @@ public enum LayoutDepthMode: String, Codable, Equatable, Sendable {
     case flat
     case depthAware
     case foregroundAware
+    case foregroundOnly
 }
 
 public struct LayoutWordPlacement: Codable, Equatable, Sendable {
