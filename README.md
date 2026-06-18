@@ -45,7 +45,8 @@ Scheduler / Manual Trigger
 ## 文档
 
 - 设计规格：[docs/superpowers/specs/2026-06-18-rural-wallpaper-mac-ai-design.md](docs/superpowers/specs/2026-06-18-rural-wallpaper-mac-ai-design.md)
+- 实施计划：[docs/superpowers/plans/2026-06-18-rural-wallpaper-mac-ai-implementation.md](docs/superpowers/plans/2026-06-18-rural-wallpaper-mac-ai-implementation.md)
 
 ## 当前状态
 
-项目处于设计规格阶段，尚未开始实现。下一步是在设计文档确认后编写实施计划，再进入 Swift/SwiftUI 工程搭建。
+项目处于实施计划阶段，尚未开始业务代码实现。下一步是选择执行方式，然后按计划进入 Swift/SwiftUI 工程搭建。
