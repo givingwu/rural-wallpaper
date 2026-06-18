@@ -11,9 +11,19 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(AppSettings.default.historyLimitPerDisplay, 30)
     }
 
+    func testUserDefaultsSettingsStoreReturnsDefaultWhenNoSettingsAreSaved() throws {
+        let (suiteName, userDefaults) = try makeIsolatedUserDefaults()
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = UserDefaultsSettingsStore(userDefaults: userDefaults)
+
+        XCTAssertEqual(try store.load(), .default)
+    }
+
     func testUserDefaultsSettingsStoreRoundTripsAppSettings() throws {
-        let suiteName = "RuralWallpaperCoreTests.SettingsStore.\(UUID().uuidString)"
-        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        let (suiteName, userDefaults) = try makeIsolatedUserDefaults()
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
         }
@@ -35,6 +45,23 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(), settings)
     }
 
+    func testUserDefaultsSettingsStoreThrowsWhenSavedSettingsCannotBeDecoded() throws {
+        let (suiteName, userDefaults) = try makeIsolatedUserDefaults()
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        userDefaults.set(Data("not-json".utf8), forKey: UserDefaultsSettingsStore.settingsKey)
+
+        let store = UserDefaultsSettingsStore(userDefaults: userDefaults)
+
+        XCTAssertThrowsError(try store.load()) { error in
+            guard case SettingsStoreError.failedToDecodeSettings = error else {
+                return XCTFail("Expected failedToDecodeSettings, got \(error)")
+            }
+        }
+    }
+
     func testMockSecretStoreCanSaveAndReadSecret() throws {
         let store = MockSecretStore()
         let ref = SecretRef(service: "RuralWallpaperTests", account: "default")
@@ -42,6 +69,13 @@ final class SettingsStoreTests: XCTestCase {
         try store.write("secret-value", for: ref)
 
         XCTAssertEqual(try store.read(ref), "secret-value")
+    }
+
+    private func makeIsolatedUserDefaults() throws -> (String, UserDefaults) {
+        let suiteName = "RuralWallpaperCoreTests.SettingsStore.\(UUID().uuidString)"
+        let userDefaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+
+        return (suiteName, userDefaults)
     }
 }
 

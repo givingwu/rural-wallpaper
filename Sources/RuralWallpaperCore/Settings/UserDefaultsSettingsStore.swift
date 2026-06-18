@@ -1,7 +1,7 @@
 import Foundation
 
 public final class UserDefaultsSettingsStore: SettingsStore, @unchecked Sendable {
-    private static let settingsKey = "RuralWallpaper.AppSettings.v1"
+    static let settingsKey = "RuralWallpaper.AppSettings.v1"
 
     private let userDefaults: UserDefaults
 

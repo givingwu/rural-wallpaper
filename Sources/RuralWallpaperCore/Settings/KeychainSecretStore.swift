@@ -60,6 +60,15 @@ public struct KeychainSecretStore: SecretStore {
             addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            if addStatus == errSecDuplicateItem {
+                let retryStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+                guard retryStatus == errSecSuccess else {
+                    throw KeychainSecretStoreError.unexpectedStatus(retryStatus)
+                }
+
+                return
+            }
+
             guard addStatus == errSecSuccess else {
                 throw KeychainSecretStoreError.unexpectedStatus(addStatus)
             }
