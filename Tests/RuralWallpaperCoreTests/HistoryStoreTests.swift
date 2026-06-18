@@ -120,6 +120,78 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: storageURL.path))
     }
 
+    func testAppendRejectsCommonAPIKeySpellings() throws {
+        let variants = [
+            "Provider rejected API Key abc123.",
+            "provider rejected api_key abc123.",
+            "provider rejected api-key abc123.",
+            "provider rejected apikey abc123.",
+            "Authorization: Bearer abc123",
+            "access_token=abc123"
+        ]
+
+        for variant in variants {
+            let (store, storageURL) = try makeStoreWithURL()
+            let record = makeRecord(
+                id: "unsafe-\(variant.hashValue)",
+                display: makeDisplay(id: "display-unsafe"),
+                failureReason: variant
+            )
+
+            XCTAssertThrowsError(try store.append(record), "Expected rejection for \(variant)") { error in
+                guard case HistoryStoreError.sensitiveDataDetected = error else {
+                    return XCTFail("Expected sensitiveDataDetected, got \(error)")
+                }
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: storageURL.path))
+        }
+    }
+
+    func testAppendDoesNotRejectNaturalWordsContainingSKPrefix() throws {
+        let store = try makeStore()
+        let display = makeDisplay(id: "display-safe-text")
+        let record = makeRecord(
+            id: "safe-natural-text",
+            display: display,
+            failureReason: "The brisk-morning color palette remained calm."
+        )
+
+        try store.append(record)
+
+        XCTAssertEqual(try store.recent(displayID: display.id, limit: 10), [record])
+    }
+
+    func testConcurrentStoresForSamePathDoNotLoseRecords() async throws {
+        let directory = try makeTemporaryDirectory()
+        let storageURL = directory.appendingPathComponent("history.json")
+        let display = makeDisplay(id: "display-concurrent")
+        let firstStore = FileHistoryStore(storageURL: storageURL, retentionLimitPerDisplay: 10)
+        let secondStore = FileHistoryStore(storageURL: storageURL, retentionLimitPerDisplay: 10)
+        let firstRecord = makeRecord(
+            id: "first",
+            display: display,
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let secondRecord = makeRecord(
+            id: "second",
+            display: display,
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+
+        async let first: Void = Task.detached {
+            try firstStore.append(firstRecord)
+        }.value
+        async let second: Void = Task.detached {
+            try secondStore.append(secondRecord)
+        }.value
+
+        _ = try await (first, second)
+
+        let records = try FileHistoryStore(storageURL: storageURL)
+            .recent(displayID: display.id, limit: 10)
+        XCTAssertEqual(Set(records.map(\.id)), ["first", "second"])
+    }
+
     private func makeStore() throws -> FileHistoryStore {
         try makeStoreWithURL().store
     }

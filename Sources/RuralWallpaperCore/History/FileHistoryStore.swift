@@ -1,12 +1,14 @@
 import Foundation
 
 public final class FileHistoryStore: HistoryStore, @unchecked Sendable {
+    private static let lockRegistry = FileHistoryStoreLockRegistry()
+
     private let storageURL: URL
     private let retentionLimitPerDisplay: Int
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let lock = NSLock()
+    private let lock: NSLock
 
     public init(
         storageURL: URL,
@@ -21,6 +23,7 @@ public final class FileHistoryStore: HistoryStore, @unchecked Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         self.encoder = encoder
         self.decoder = JSONDecoder()
+        self.lock = Self.lock(for: storageURL)
     }
 
     public func append(_ record: GeneratedWallpaper) throws {
@@ -93,13 +96,18 @@ public final class FileHistoryStore: HistoryStore, @unchecked Sendable {
             throw HistoryStoreError.failedToEncode
         }
 
-        let checks: [(String, String.CompareOptions)] = [
-            ("Bearer ", [.caseInsensitive]),
-            ("apiKey", [.caseInsensitive]),
-            (#"sk-[A-Za-z0-9_-]{6,}"#, [.regularExpression, .caseInsensitive])
+        let checks = [
+            #"\bapi[\s_-]*key\b"#,
+            #"\baccess[\s_-]*token\b"#,
+            #"\bauthorization\b\s*[:=]"#,
+            #"\bbearer\s*[:=]?\s+[A-Za-z0-9._~+/\-=]{6,}"#,
+            #"(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}"#
         ]
 
-        for (pattern, options) in checks where json.range(of: pattern, options: options) != nil {
+        for pattern in checks where json.range(
+            of: pattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil {
             throw HistoryStoreError.sensitiveDataDetected(pattern)
         }
     }
@@ -118,6 +126,28 @@ public final class FileHistoryStore: HistoryStore, @unchecked Sendable {
             try data.write(to: storageURL, options: [.atomic])
         } catch {
             throw HistoryStoreError.failedToWrite(storageURL)
+        }
+    }
+
+    private static func lock(for storageURL: URL) -> NSLock {
+        lockRegistry.lock(for: storageURL)
+    }
+}
+
+private final class FileHistoryStoreLockRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var locksByStoragePath: [String: NSLock] = [:]
+
+    func lock(for storageURL: URL) -> NSLock {
+        lock.withLock {
+            let key = storageURL.standardizedFileURL.path
+            if let existing = locksByStoragePath[key] {
+                return existing
+            }
+
+            let storageLock = NSLock()
+            locksByStoragePath[key] = storageLock
+            return storageLock
         }
     }
 }
