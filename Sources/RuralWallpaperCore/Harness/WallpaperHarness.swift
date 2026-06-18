@@ -281,7 +281,15 @@ public struct WallpaperHarness: Sendable {
     }
 
     private func isCancellation(_ error: Error) -> Bool {
-        error is CancellationError
+        if error is CancellationError {
+            return true
+        }
+
+        if let urlError = error as? URLError {
+            return urlError.code == .cancelled
+        }
+
+        return false
     }
 
     private func formatScore(_ score: Double) -> String {
