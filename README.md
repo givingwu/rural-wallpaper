@@ -46,7 +46,43 @@ Scheduler / Manual Trigger
 
 - 设计规格：[docs/superpowers/specs/2026-06-18-rural-wallpaper-mac-ai-design.md](docs/superpowers/specs/2026-06-18-rural-wallpaper-mac-ai-design.md)
 - 实施计划：[docs/superpowers/plans/2026-06-18-rural-wallpaper-mac-ai-implementation.md](docs/superpowers/plans/2026-06-18-rural-wallpaper-mac-ai-implementation.md)
+- Provider 配置：[docs/provider-setup.md](docs/provider-setup.md)
+- 手工验收：[docs/manual-verification.md](docs/manual-verification.md)
+
+## 开发环境
+
+- macOS 14+
+- Swift 6 / Xcode Command Line Tools
+
+## 使用方式
+
+运行测试：
+
+```bash
+swift test
+```
+
+启动菜单栏 App：
+
+```bash
+swift run RuralWallpaperApp
+```
+
+首次启动后可在菜单栏打开 `Settings`：
+
+- 未配置真实 Provider 时，`Generate Now` 使用本地 mock preview flow：生成一张渐变乡村壁纸、叠加 3-5 个英文词、写入 History，但不会直接替换桌面。
+- Provider `Test Connection` 成功后，`Generate Now` 会切换到真实 Provider flow，并使用 macOS 桌面设置接口。
+- `History` 展示当前显示器最近记录、词汇、中文释义、例句、评分和失败原因。
 
 ## 当前状态
 
-项目已进入 Swift Package 业务代码实现阶段。当前核心模块包含配置存储、Provider Harness、渲染与布局基础能力、DisplayCoordinator 多显示器调度，以及 FileHistoryStore 历史记录持久化：可按 `AppSettings.enabledDisplayIDs` 过滤当前显示器，为每块启用显示器并发运行壁纸生成，并在屏幕变化时取消已消失显示器的任务；生成结果按显示器读取最近记录，每屏默认保留 30 条，写入前会阻止明显的 API Key / Bearer Token 泄漏。
+项目已完成 Swift Package MVP 闭环。当前能力包括：
+
+- 原生 macOS 菜单栏入口、Settings 和 History 窗口。
+- OpenAI-compatible Provider 配置：`Base URL`、`Model`、`API Key`、可选 Headers。
+- API Key 通过 Keychain 保存，非敏感设置通过 UserDefaults 保存。
+- 本地 mock preview flow，可在没有 API Key 时完成端到端生成。
+- 真实 Provider smoke path：`Test Connection` 成功后切换到真实生成链路。
+- 每块显示器独立调度，支持显示器过滤、消失取消、快照变化重启。
+- CoreGraphics 本地渲染英文单词，布局会检查文字和阴影边界。
+- FileHistoryStore 按显示器读取最近记录，每屏默认保留 30 条，写入前阻止明显 API Key / Bearer Token 泄漏。
