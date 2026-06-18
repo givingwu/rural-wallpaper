@@ -132,6 +132,10 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         depthMode: LayoutDepthMode,
         canvas: CGRect
     ) throws -> WallpaperTextRun {
+        guard isValidPlacementInput(placement) else {
+            throw RenderError.invalidLayout
+        }
+
         let textRun = WallpaperTextMeasurer.textRun(
             for: placement,
             depthMode: depthMode
@@ -139,17 +143,39 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         let placementRect = WallpaperTextMeasurer.cgRect(from: placement.rect)
 
         guard placementRect.contains(
-            textRun.textBounds,
+            textRun.renderBounds,
             tolerance: WallpaperTextMeasurer.boundsTolerance
         ),
               canvas.contains(
-                textRun.textBounds,
+                textRun.renderBounds,
                 tolerance: WallpaperTextMeasurer.boundsTolerance
               ) else {
             throw RenderError.invalidLayout
         }
 
         return textRun
+    }
+
+    private func isValidPlacementInput(_ placement: LayoutWordPlacement) -> Bool {
+        let rect = placement.rect
+        let values = [
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+            placement.baseline.x,
+            placement.baseline.y,
+            placement.fontSize,
+            placement.depth,
+            placement.opacity
+        ]
+
+        return values.allSatisfy(\.isFinite)
+            && rect.size.width > 0
+            && rect.size.height > 0
+            && placement.fontSize > 0
+            && (0...1).contains(placement.depth)
+            && (0...1).contains(placement.opacity)
     }
 }
 

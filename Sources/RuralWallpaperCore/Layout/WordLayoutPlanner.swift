@@ -179,9 +179,15 @@ public struct WordLayoutPlanner: LayoutPlanner {
         )
         let mainOpacity = 0.96
         let helperOpacity = 0.88
+        let mainDepth = plannedDepth(
+            forPlacementAt: 0,
+            totalPlacements: words.count,
+            depthMode: depthMode
+        )
         let mainTextSize = WallpaperTextMeasurer.measuredSize(
             for: words[0].word,
             fontSize: mainFontSize,
+            depth: mainDepth,
             opacity: mainOpacity
         )
         let mainX = anchoredX(
@@ -205,22 +211,27 @@ public struct WordLayoutPlanner: LayoutPlanner {
                 word: words[0].word,
                 rect: mainRect,
                 fontSize: mainFontSize,
-                depth: plannedDepth(
-                    forPlacementAt: 0,
-                    totalPlacements: words.count,
-                    depthMode: depthMode
-                ),
-                opacity: mainOpacity
+                depth: mainDepth,
+                opacity: mainOpacity,
+                depthMode: depthMode
             )
         ]
 
         let helperWords = Array(words.dropFirst())
         guard !helperWords.isEmpty else { return placements }
 
-        let helperTextSizes = helperWords.map {
+        let helperDepths = helperWords.indices.map {
+            plannedDepth(
+                forPlacementAt: $0 + 1,
+                totalPlacements: words.count,
+                depthMode: depthMode
+            )
+        }
+        let helperTextSizes = helperWords.indices.map {
             WallpaperTextMeasurer.measuredSize(
-                for: $0.word,
+                for: helperWords[$0].word,
                 fontSize: helperFontSize,
+                depth: helperDepths[$0],
                 opacity: helperOpacity
             )
         }
@@ -260,12 +271,9 @@ public struct WordLayoutPlanner: LayoutPlanner {
                     word: helperWords[index].word,
                     rect: rect,
                     fontSize: helperFontSize,
-                    depth: plannedDepth(
-                        forPlacementAt: index + 1,
-                        totalPlacements: words.count,
-                        depthMode: depthMode
-                    ),
-                    opacity: helperOpacity
+                    depth: helperDepths[index],
+                    opacity: helperOpacity,
+                    depthMode: depthMode
                 )
             )
         }
@@ -341,14 +349,16 @@ public struct WordLayoutPlanner: LayoutPlanner {
         rect: CoreRect,
         fontSize: Double,
         depth: Double,
-        opacity: Double
+        opacity: Double,
+        depthMode: LayoutDepthMode
     ) -> LayoutWordPlacement {
         WallpaperTextMeasurer.makePlacement(
             word: word,
             rect: rect,
             fontSize: fontSize,
             depth: depth,
-            opacity: opacity
+            opacity: opacity,
+            depthMode: depthMode
         )
     }
 

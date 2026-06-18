@@ -5,6 +5,7 @@ struct WallpaperTextRun {
     var attributedWord: NSAttributedString
     var drawPoint: CGPoint
     var textBounds: CGRect
+    var renderBounds: CGRect
 }
 
 enum WallpaperTextMeasurer {
@@ -13,18 +14,19 @@ enum WallpaperTextMeasurer {
     static func measuredSize(
         for word: String,
         fontSize: Double,
+        depth: Double = 0,
         opacity: Double
     ) -> CoreSize {
         let metrics = makeMetrics(
             word: word,
             fontSize: fontSize,
-            depth: 0,
+            depth: depth,
             opacity: opacity
         )
 
         return CoreSize(
-            width: ceil(metrics.measuredBounds.width),
-            height: ceil(metrics.measuredBounds.height)
+            width: ceil(metrics.renderBounds.width),
+            height: ceil(metrics.renderBounds.height)
         )
     }
 
@@ -33,12 +35,13 @@ enum WallpaperTextMeasurer {
         rect: CoreRect,
         fontSize: Double,
         depth: Double,
-        opacity: Double
+        opacity: Double,
+        depthMode: LayoutDepthMode = .depthAware
     ) -> LayoutWordPlacement {
         let metrics = makeMetrics(
             word: word,
             fontSize: fontSize,
-            depth: 0,
+            depth: effectiveDepth(depth, depthMode: depthMode),
             opacity: opacity
         )
 
@@ -46,8 +49,8 @@ enum WallpaperTextMeasurer {
             word: word,
             rect: rect,
             baseline: CorePoint(
-                x: rect.origin.x - Double(metrics.measuredBounds.minX),
-                y: rect.origin.y + metrics.baselineOffsetFromTextTop
+                x: rect.origin.x - Double(metrics.renderBounds.minX),
+                y: rect.origin.y + metrics.baselineOffsetFromRenderTop
             ),
             fontSize: fontSize,
             depth: depth,
@@ -77,11 +80,16 @@ enum WallpaperTextMeasurer {
             dx: drawPoint.x,
             dy: drawPoint.y
         ).standardized
+        let renderBounds = metrics.renderBounds.offsetBy(
+            dx: drawPoint.x,
+            dy: drawPoint.y
+        ).standardized
 
         return WallpaperTextRun(
             attributedWord: metrics.attributedWord,
             drawPoint: drawPoint,
-            textBounds: textBounds
+            textBounds: textBounds,
+            renderBounds: renderBounds
         )
     }
 
@@ -132,12 +140,41 @@ enum WallpaperTextMeasurer {
             ),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         ).standardized
+        let renderBounds = renderedBounds(
+            glyphBounds: measuredBounds,
+            shadow: shadow,
+            opacity: opacity
+        )
 
         return WallpaperTextMetrics(
             attributedWord: attributedWord,
             font: font,
-            measuredBounds: measuredBounds
+            measuredBounds: measuredBounds,
+            renderBounds: renderBounds
         )
+    }
+
+    private static func renderedBounds(
+        glyphBounds: CGRect,
+        shadow: NSShadow,
+        opacity: CGFloat
+    ) -> CGRect {
+        guard opacity > 0,
+              let shadowColor = shadow.shadowColor as? NSColor,
+              shadowColor.alphaComponent > 0 else {
+            return glyphBounds
+        }
+
+        let blurRadius = max(0, shadow.shadowBlurRadius)
+        let shadowBounds = glyphBounds
+            .offsetBy(
+                dx: shadow.shadowOffset.width,
+                dy: shadow.shadowOffset.height
+            )
+            .insetBy(dx: -blurRadius, dy: -blurRadius)
+            .standardized
+
+        return glyphBounds.union(shadowBounds).standardized
     }
 
     private static func clamp(
@@ -151,11 +188,18 @@ enum WallpaperTextMeasurer {
         for placement: LayoutWordPlacement,
         depthMode: LayoutDepthMode
     ) -> Double {
+        effectiveDepth(placement.depth, depthMode: depthMode)
+    }
+
+    private static func effectiveDepth(
+        _ depth: Double,
+        depthMode: LayoutDepthMode
+    ) -> Double {
         switch depthMode {
         case .flat:
             return 0
         case .depthAware, .foregroundAware, .foregroundOnly:
-            return placement.depth
+            return depth
         }
     }
 }
@@ -164,8 +208,9 @@ private struct WallpaperTextMetrics {
     var attributedWord: NSAttributedString
     var font: NSFont
     var measuredBounds: CGRect
+    var renderBounds: CGRect
 
-    var baselineOffsetFromTextTop: Double {
-        Double(font.ascender - measuredBounds.minY)
+    var baselineOffsetFromRenderTop: Double {
+        Double(font.ascender - renderBounds.minY)
     }
 }

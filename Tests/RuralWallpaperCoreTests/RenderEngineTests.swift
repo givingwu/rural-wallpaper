@@ -25,16 +25,28 @@ final class RenderEngineTests: XCTestCase {
 
     func testRenderedPNGContainsVisibleWordPixels() throws {
         let display = makeDisplay(width: 360, height: 220)
+        let opacity = 0.98
+        let textSize = WallpaperTextMeasurer.measuredSize(
+            for: "FIELD",
+            fontSize: 72,
+            depth: 0,
+            opacity: opacity
+        )
         let plan = makePlan(
             display: display,
             placements: [
-                LayoutWordPlacement(
+                WallpaperTextMeasurer.makePlacement(
                     word: "FIELD",
-                    rect: CoreRect(x: 42, y: 58, width: 240, height: 90),
-                    baseline: CorePoint(x: 42, y: 128),
+                    rect: CoreRect(
+                        x: 42,
+                        y: 58,
+                        width: textSize.width,
+                        height: textSize.height
+                    ),
                     fontSize: 72,
                     depth: 0,
-                    opacity: 0.98
+                    opacity: opacity,
+                    depthMode: .flat
                 )
             ]
         )
@@ -120,9 +132,17 @@ final class RenderEngineTests: XCTestCase {
         XCTAssertNotEqual(baseShadow.shadowOffset, foregroundShadow.shadowOffset)
         XCTAssertNotEqual(shadowAlpha(baseShadow), shadowAlpha(foregroundShadow))
         assertCGRect(
-            foregroundRun.textBounds,
+            foregroundRun.renderBounds,
             isInside: WallpaperTextMeasurer.cgRect(from: foregroundPlacement.rect),
             tolerance: WallpaperTextMeasurer.boundsTolerance
+        )
+        XCTAssertGreaterThanOrEqual(
+            foregroundRun.renderBounds.width,
+            foregroundRun.textBounds.width
+        )
+        XCTAssertGreaterThanOrEqual(
+            foregroundRun.renderBounds.height,
+            foregroundRun.textBounds.height
         )
     }
 
@@ -141,6 +161,71 @@ final class RenderEngineTests: XCTestCase {
                 )
             ]
         )
+        let background = try makeSolidPNG(width: 420, height: 240, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+
+        XCTAssertThrowsError(
+            try engine.render(
+                background: background,
+                plan: plan,
+                display: display
+            )
+        ) { error in
+            XCTAssertEqual(error as? RenderError, .invalidLayout)
+        }
+    }
+
+    func testInvalidFontSizeThrowsInvalidLayout() throws {
+        let display = makeDisplay(width: 420, height: 240)
+        let plan = makePlan(
+            display: display,
+            placements: [
+                LayoutWordPlacement(
+                    word: "MEADOW",
+                    rect: CoreRect(x: 18, y: 28, width: 300, height: 86),
+                    baseline: CorePoint(x: 18, y: 92),
+                    fontSize: 0,
+                    depth: 0,
+                    opacity: 0.98
+                )
+            ]
+        )
+        let background = try makeSolidPNG(width: 420, height: 240, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+
+        XCTAssertThrowsError(
+            try engine.render(
+                background: background,
+                plan: plan,
+                display: display
+            )
+        ) { error in
+            XCTAssertEqual(error as? RenderError, .invalidLayout)
+        }
+    }
+
+    func testShadowRenderBoundsOutsidePlacementThrowsInvalidLayout() throws {
+        let display = makeDisplay(width: 420, height: 240)
+        let flatSize = WallpaperTextMeasurer.measuredSize(
+            for: "MEADOW",
+            fontSize: 52,
+            depth: 0,
+            opacity: 0.98
+        )
+        var placement = WallpaperTextMeasurer.makePlacement(
+            word: "MEADOW",
+            rect: CoreRect(
+                x: 28,
+                y: 40,
+                width: flatSize.width,
+                height: flatSize.height
+            ),
+            fontSize: 52,
+            depth: 0,
+            opacity: 0.98
+        )
+        placement.depth = 1
+        let plan = makePlan(display: display, placements: [placement], depthMode: .depthAware)
         let background = try makeSolidPNG(width: 420, height: 240, color: .black)
         let engine = CoreGraphicsRenderEngine()
 
@@ -374,12 +459,13 @@ final class RenderEngineTests: XCTestCase {
                 depth: 0,
                 opacity: 0.95
             )
-        ]
+        ],
+        depthMode: LayoutDepthMode = .flat
     ) -> LayoutPlan {
         LayoutPlan(
             displayID: display.id,
             wordPlacements: placements,
-            depthMode: .flat,
+            depthMode: depthMode,
             score: 0.9
         )
     }
