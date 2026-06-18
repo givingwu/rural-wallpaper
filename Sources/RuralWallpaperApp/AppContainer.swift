@@ -85,18 +85,33 @@ final class AppContainer: ObservableObject {
         self.displayProvider = displayProvider
         self.userDefaults = userDefaults
 
-        let loadedSettings = (try? settingsStore.load()) ?? .default
+        var startupMessages: [String] = []
+        let loadedSettings: AppSettings
+        do {
+            loadedSettings = try settingsStore.load()
+        } catch {
+            loadedSettings = .default
+            startupMessages.append(Self.describe(error))
+        }
+
         self.settings = loadedSettings
         self.historyStore = historyStore ?? FileHistoryStore(
             storageURL: Self.applicationSupportDirectory()
                 .appendingPathComponent("history.json"),
             retentionLimitPerDisplay: loadedSettings.historyLimitPerDisplay
         )
-        self.providerSettings = Self.loadProviderSettings(
+        let loadedProviderSettings = Self.loadProviderSettings(
             userDefaults: userDefaults,
             secretStore: secretStore
         )
+        self.providerSettings = loadedProviderSettings.draft
+        if let providerLoadError = loadedProviderSettings.error {
+            startupMessages.append(Self.describe(providerLoadError))
+        }
         self.displays = displayProvider.currentDisplays()
+        self.lastErrorMessage = startupMessages.isEmpty
+            ? nil
+            : startupMessages.joined(separator: "\n")
     }
 
     func reloadDisplays() {
@@ -133,11 +148,17 @@ final class AppContainer: ObservableObject {
                 throw AppContainerError.missingAPIKey
             }
 
-            let config = try persistProviderSettings(draft)
-            providerSettings = draft
-
-            let provider = OpenAICompatibleProvider(config: config, secretStore: secretStore)
+            let config = try makeProviderConfig(from: draft)
+            let provider = OpenAICompatibleProvider(
+                config: config,
+                secretStore: DraftSecretStore(
+                    secretRef: Self.providerSecretRef,
+                    secret: draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            )
             let result = try await provider.testConnection()
+            _ = try persistProviderSettings(draft)
+            providerSettings = draft
             providerMode = .realProvider
             lastErrorMessage = "Connected \(result.model)."
         } catch {
@@ -231,7 +252,12 @@ final class AppContainer: ObservableObject {
     }
 
     private func makeProviderConfig(from draft: ProviderSettingsDraft) throws -> ProviderConfig {
-        guard let baseURL = URL(string: draft.baseURL), baseURL.scheme != nil else {
+        guard
+            let baseURL = URL(string: draft.baseURL),
+            let scheme = baseURL.scheme?.lowercased(),
+            ["http", "https"].contains(scheme),
+            !(baseURL.host ?? "").isEmpty
+        else {
             throw AppContainerError.invalidBaseURL
         }
 
@@ -248,9 +274,6 @@ final class AppContainer: ObservableObject {
 
     private func persistProviderSettings(_ draft: ProviderSettingsDraft) throws -> ProviderConfig {
         let config = try makeProviderConfig(from: draft)
-        userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
-        userDefaults.set(draft.model, forKey: ProviderDefaults.model)
-        userDefaults.set(draft.additionalHeaders, forKey: ProviderDefaults.additionalHeaders)
 
         // API Key 写入 Keychain，不进入 UserDefaults 或 JSON 配置。
         if draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -259,21 +282,38 @@ final class AppContainer: ObservableObject {
             try secretStore.write(draft.apiKey, for: Self.providerSecretRef)
         }
 
+        userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
+        userDefaults.set(draft.model, forKey: ProviderDefaults.model)
+        userDefaults.set(draft.additionalHeaders, forKey: ProviderDefaults.additionalHeaders)
+
         return config
     }
 
     private static func loadProviderSettings(
         userDefaults: UserDefaults,
         secretStore: any SecretStore
-    ) -> ProviderSettingsDraft {
-        ProviderSettingsDraft(
-            baseURL: userDefaults.string(forKey: ProviderDefaults.baseURL)
-                ?? ProviderSettingsDraft.default.baseURL,
-            model: userDefaults.string(forKey: ProviderDefaults.model)
-                ?? ProviderSettingsDraft.default.model,
-            apiKey: (try? secretStore.read(Self.providerSecretRef)) ?? "",
-            additionalHeaders: userDefaults.string(forKey: ProviderDefaults.additionalHeaders)
-                ?? ProviderSettingsDraft.default.additionalHeaders
+    ) -> ProviderSettingsLoadResult {
+        let apiKey: String
+        let secretLoadError: Error?
+        do {
+            apiKey = try secretStore.read(Self.providerSecretRef) ?? ""
+            secretLoadError = nil
+        } catch {
+            apiKey = ""
+            secretLoadError = error
+        }
+
+        return ProviderSettingsLoadResult(
+            draft: ProviderSettingsDraft(
+                baseURL: userDefaults.string(forKey: ProviderDefaults.baseURL)
+                    ?? ProviderSettingsDraft.default.baseURL,
+                model: userDefaults.string(forKey: ProviderDefaults.model)
+                    ?? ProviderSettingsDraft.default.model,
+                apiKey: apiKey,
+                additionalHeaders: userDefaults.string(forKey: ProviderDefaults.additionalHeaders)
+                    ?? ProviderSettingsDraft.default.additionalHeaders
+            ),
+            error: secretLoadError
         )
     }
 
@@ -350,6 +390,24 @@ private enum ProviderDefaults {
     static let baseURL = "RuralWallpaper.Provider.BaseURL"
     static let model = "RuralWallpaper.Provider.Model"
     static let additionalHeaders = "RuralWallpaper.Provider.AdditionalHeaders"
+}
+
+private struct ProviderSettingsLoadResult {
+    var draft: ProviderSettingsDraft
+    var error: Error?
+}
+
+private struct DraftSecretStore: SecretStore {
+    var secretRef: SecretRef
+    var secret: String
+
+    func read(_ ref: SecretRef) throws -> String? {
+        ref == secretRef ? secret : nil
+    }
+
+    func write(_ value: String, for ref: SecretRef) throws {}
+
+    func delete(_ ref: SecretRef) throws {}
 }
 
 private struct GenerationDependencies {

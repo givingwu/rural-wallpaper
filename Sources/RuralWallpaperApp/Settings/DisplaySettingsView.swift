@@ -37,18 +37,15 @@ struct DisplaySettingsView: View {
     private func enabledBinding(for display: DisplayTarget) -> Binding<Bool> {
         Binding(
             get: {
-                settings.enabledDisplayIDs.isEmpty || settings.enabledDisplayIDs.contains(display.id)
+                DisplaySelection.isEnabled(displayID: display.id, settings: settings)
             },
             set: { enabled in
-                if settings.enabledDisplayIDs.isEmpty {
-                    settings.enabledDisplayIDs = Set(displays.map(\.id))
-                }
-
-                if enabled {
-                    settings.enabledDisplayIDs.insert(display.id)
-                } else {
-                    settings.enabledDisplayIDs.remove(display.id)
-                }
+                DisplaySelection.update(
+                    displayID: display.id,
+                    enabled: enabled,
+                    displays: displays,
+                    settings: &settings
+                )
             }
         )
     }

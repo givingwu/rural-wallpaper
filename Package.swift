@@ -19,6 +19,10 @@ let package = Package(
         .testTarget(
             name: "RuralWallpaperCoreTests",
             dependencies: ["RuralWallpaperCore"]
+        ),
+        .testTarget(
+            name: "RuralWallpaperAppTests",
+            dependencies: ["RuralWallpaperApp"]
         )
     ]
 )
