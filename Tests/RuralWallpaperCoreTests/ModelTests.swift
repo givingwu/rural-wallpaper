@@ -2,15 +2,16 @@ import XCTest
 @testable import RuralWallpaperCore
 
 final class ModelTests: XCTestCase {
-    func testProviderConfigUsesSecretReference() {
-        let config = makeProviderConfig()
+    func testProviderConfigUsesSecretReference() throws {
+        let config = try makeProviderConfig()
 
         XCTAssertEqual(config.secretRef.account, "default")
         XCTAssertTrue(config.capabilities.contains(.vision))
     }
 
-    func testProviderConfigEncodingContainsSecretReferenceWithoutCredentialFields() throws {
+    func testProviderConfigEncodingContainsSecretReferenceAndSafeAdditionalHeaders() throws {
         let encoded = try JSONEncoder().encode(makeProviderConfig())
+        let decoded = try JSONDecoder().decode(ProviderConfig.self, from: encoded)
         let object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
@@ -25,9 +26,44 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(secret["account"] as? String, "default")
         XCTAssertEqual(secret["service"] as? String, "RuralWallpaper")
         XCTAssertTrue(encodedKeys.contains("secretRef"))
+        XCTAssertTrue(encodedKeys.contains("additionalHeaders"))
+        XCTAssertEqual(decoded.additionalHeaders["X-Test"], "1")
         forbiddenKeys.forEach { key in
             XCTAssertFalse(encodedKeys.contains(key))
         }
+    }
+
+    func testProviderConfigRejectsSensitiveAdditionalHeadersOnInit() {
+        XCTAssertThrowsError(
+            try makeProviderConfig(additionalHeaders: ["Author" + "ization": "redacted"])
+        )
+        XCTAssertThrowsError(
+            try makeProviderConfig(additionalHeaders: ["X-Test": "Bearer " + "redacted"])
+        )
+        XCTAssertThrowsError(
+            try makeProviderConfig(additionalHeaders: ["X-Test": "sk-" + "redacted"])
+        )
+    }
+
+    func testProviderConfigRejectsSensitiveAdditionalHeadersOnDecode() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": "default",
+            "name": "Default",
+            "baseURL": "https://api.example.com/v1",
+            "model": "vision-model",
+            "secretRef": [
+                "service": "RuralWallpaper",
+                "account": "default"
+            ],
+            "additionalHeaders": [
+                "X-" + "API" + "-Key": "redacted"
+            ],
+            "capabilities": ProviderCapability.vision.rawValue
+        ])
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(ProviderConfig.self, from: data)
+        )
     }
 
     func testVocabularyRangeValidation() {
@@ -76,14 +112,16 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(result.passes(threshold: 0.75))
     }
 
-    private func makeProviderConfig() -> ProviderConfig {
-        ProviderConfig(
+    private func makeProviderConfig(
+        additionalHeaders: [String: String] = ["X-Test": "1"]
+    ) throws -> ProviderConfig {
+        try ProviderConfig(
             id: "default",
             name: "Default",
             baseURL: URL(string: "https://api.example.com/v1")!,
             model: "vision-model",
             secretRef: SecretRef(service: "RuralWallpaper", account: "default"),
-            headers: ["X-Test": "1"],
+            additionalHeaders: additionalHeaders,
             capabilities: [.vision, .imageGeneration, .structuredOutput]
         )
     }
