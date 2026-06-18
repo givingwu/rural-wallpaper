@@ -3,8 +3,6 @@ import Foundation
 import ImageIO
 
 public struct CoreGraphicsRenderEngine: RenderEngine {
-    private let textBoundsTolerance: CGFloat = 4
-
     public init() {}
 
     public func render(
@@ -17,6 +15,10 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
 
         guard canvasWidth > 0, canvasHeight > 0 else {
             throw RenderError.invalidDisplaySize
+        }
+
+        guard plan.displayID == display.id else {
+            throw RenderError.invalidLayout
         }
 
         let backgroundImage = try decodeImage(from: background)
@@ -128,72 +130,22 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
     private func makeTextRun(
         for placement: LayoutWordPlacement,
         canvas: CGRect
-    ) throws -> TextRun {
-        let fontSize = CGFloat(max(placement.fontSize, 1))
-        let opacity = CGFloat(placement.opacity.clamped(to: 0...1))
-        let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.32 * opacity)
-        shadow.shadowBlurRadius = max(2, fontSize * 0.07)
-        shadow.shadowOffset = CGSize(width: 0, height: 2)
+    ) throws -> WallpaperTextRun {
+        let textRun = WallpaperTextMeasurer.textRun(for: placement)
+        let placementRect = WallpaperTextMeasurer.cgRect(from: placement.rect)
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor(white: 0.98, alpha: opacity),
-            .shadow: shadow
-        ]
-        let attributedWord = NSAttributedString(
-            string: placement.word,
-            attributes: attributes
-        )
-        let drawPoint = CGPoint(
-            x: placement.baseline.x,
-            y: placement.baseline.y - Double(font.ascender)
-        )
-        let measuredBounds = attributedWord.boundingRect(
-            with: CGSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
-            ),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let textBounds = measuredBounds.offsetBy(
-            dx: drawPoint.x,
-            dy: drawPoint.y
-        ).standardized
-        let placementRect = placement.rect.cgRect
-
-        guard placementRect.contains(textBounds, tolerance: textBoundsTolerance),
-              canvas.contains(textBounds, tolerance: textBoundsTolerance) else {
+        guard placementRect.contains(
+            textRun.textBounds,
+            tolerance: WallpaperTextMeasurer.boundsTolerance
+        ),
+              canvas.contains(
+                textRun.textBounds,
+                tolerance: WallpaperTextMeasurer.boundsTolerance
+              ) else {
             throw RenderError.invalidLayout
         }
 
-        return TextRun(
-            attributedWord: attributedWord,
-            drawPoint: drawPoint
-        )
-    }
-}
-
-private struct TextRun {
-    var attributedWord: NSAttributedString
-    var drawPoint: CGPoint
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        min(max(self, range.lowerBound), range.upperBound)
-    }
-}
-
-private extension CoreRect {
-    var cgRect: CGRect {
-        CGRect(
-            x: origin.x,
-            y: origin.y,
-            width: size.width,
-            height: size.height
-        )
+        return textRun
     }
 }
 

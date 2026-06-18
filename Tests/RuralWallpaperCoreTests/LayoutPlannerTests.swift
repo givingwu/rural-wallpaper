@@ -104,7 +104,8 @@ final class LayoutPlannerTests: XCTestCase {
             for placement in plan.wordPlacements {
                 let estimatedSize = estimatedTextSize(
                     for: placement.word,
-                    fontSize: placement.fontSize
+                    fontSize: placement.fontSize,
+                    opacity: placement.opacity
                 )
 
                 XCTAssertGreaterThanOrEqual(
@@ -233,9 +234,16 @@ final class LayoutPlannerTests: XCTestCase {
         )
     }
 
-    private func estimatedTextSize(for word: String, fontSize: Double) -> CoreSize {
-        let width = max(fontSize * 1.5, Double(word.count) * fontSize * 0.58)
-        return CoreSize(width: width, height: fontSize * 1.18)
+    private func estimatedTextSize(
+        for word: String,
+        fontSize: Double,
+        opacity: Double
+    ) -> CoreSize {
+        WallpaperTextMeasurer.measuredSize(
+            for: word,
+            fontSize: fontSize,
+            opacity: opacity
+        )
     }
 
     private func assertPlacementsAreInsideDisplay(

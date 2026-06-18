@@ -79,7 +79,7 @@ final class RenderEngineTests: XCTestCase {
         assertPixelBounds(
             brightBounds,
             isInside: placement.rect,
-            tolerance: 4
+            tolerance: Double(WallpaperTextMeasurer.boundsTolerance)
         )
     }
 
@@ -99,6 +99,67 @@ final class RenderEngineTests: XCTestCase {
             ]
         )
         let background = try makeSolidPNG(width: 420, height: 240, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+
+        XCTAssertThrowsError(
+            try engine.render(
+                background: background,
+                plan: plan,
+                display: display
+            )
+        ) { error in
+            XCTAssertEqual(error as? RenderError, .invalidLayout)
+        }
+    }
+
+    func testWordLayoutPlannerCandidatesRenderSuccessfullyForRealisticWords() throws {
+        let display = makeDisplay(width: 1440, height: 900)
+        let analysis = ImageAnalysis(
+            summary: "A calm meadow with a barn, orchard, and distant ridge.",
+            safeTextRegions: [
+                CoreRect(x: 180, y: 230, width: 980, height: 280)
+            ],
+            lowDetailRects: [
+                CoreRect(x: 180, y: 230, width: 980, height: 280)
+            ],
+            maskConfidence: 0.9
+        )
+        let planner = WordLayoutPlanner()
+        let engine = CoreGraphicsRenderEngine()
+        let background = try makeSolidPNG(width: 1440, height: 900, color: .black)
+
+        for wordCount in 3...5 {
+            let plan = try XCTUnwrap(
+                planner.makeLayoutCandidates(
+                    display: display,
+                    analysis: analysis,
+                    words: Array(realisticVocabularyItems().prefix(wordCount)),
+                    maxCandidates: 1
+                ).first
+            )
+
+            let rendered = try engine.render(
+                background: background,
+                plan: plan,
+                display: display
+            )
+            let output = try decodePNG(rendered.pngData)
+
+            XCTAssertEqual(output.pixelsWide, display.pixelSize.width)
+            XCTAssertEqual(output.pixelsHigh, display.pixelSize.height)
+            XCTAssertTrue(containsBrightPixel(output))
+        }
+    }
+
+    func testPlanDisplayIDMismatchThrowsInvalidLayout() throws {
+        let display = makeDisplay(width: 320, height: 180)
+        let plan = LayoutPlan(
+            displayID: "different-display",
+            wordPlacements: [],
+            depthMode: .flat,
+            score: 0.9
+        )
+        let background = try makeSolidPNG(width: 320, height: 180, color: .black)
         let engine = CoreGraphicsRenderEngine()
 
         XCTAssertThrowsError(
@@ -235,6 +296,27 @@ final class RenderEngineTests: XCTestCase {
             colorSpace: "Display P3",
             isMain: true,
             friendlyName: "Built-in Display"
+        )
+    }
+
+    private func realisticVocabularyItems() -> [VocabularyItem] {
+        [
+            makeVocabularyItem(word: "meadow"),
+            makeVocabularyItem(word: "harvest"),
+            makeVocabularyItem(word: "orchard"),
+            makeVocabularyItem(word: "ridge"),
+            makeVocabularyItem(word: "pasture")
+        ]
+    }
+
+    private func makeVocabularyItem(word: String) -> VocabularyItem {
+        VocabularyItem(
+            word: word,
+            partOfSpeech: "noun",
+            zhDefinition: "测试词",
+            example: "The word fits a calm rural wallpaper.",
+            difficulty: 2,
+            sourceReason: "Render integration test fixture."
         )
     }
 

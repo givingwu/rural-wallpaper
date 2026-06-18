@@ -175,7 +175,13 @@ public struct WordLayoutPlanner: LayoutPlanner {
             minimum: 22,
             scale: scale
         )
-        let mainTextSize = estimatedTextSize(for: words[0].word, fontSize: mainFontSize)
+        let mainOpacity = 0.96
+        let helperOpacity = 0.88
+        let mainTextSize = WallpaperTextMeasurer.measuredSize(
+            for: words[0].word,
+            fontSize: mainFontSize,
+            opacity: mainOpacity
+        )
         let mainX = anchoredX(
             rectWidth: mainTextSize.width,
             in: region,
@@ -198,7 +204,7 @@ public struct WordLayoutPlanner: LayoutPlanner {
                 rect: mainRect,
                 fontSize: mainFontSize,
                 depth: 0.0,
-                opacity: 0.96
+                opacity: mainOpacity
             )
         ]
 
@@ -206,7 +212,11 @@ public struct WordLayoutPlanner: LayoutPlanner {
         guard !helperWords.isEmpty else { return placements }
 
         let helperTextSizes = helperWords.map {
-            estimatedTextSize(for: $0.word, fontSize: helperFontSize)
+            WallpaperTextMeasurer.measuredSize(
+                for: $0.word,
+                fontSize: helperFontSize,
+                opacity: helperOpacity
+            )
         }
         let rowCount = Int((Double(helperWords.count) / 2.0).rounded(.up))
         let helperGapY = max(8, helperFontSize * 0.42)
@@ -245,7 +255,7 @@ public struct WordLayoutPlanner: LayoutPlanner {
                     rect: rect,
                     fontSize: helperFontSize,
                     depth: 0.0,
-                    opacity: 0.88
+                    opacity: helperOpacity
                 )
             )
         }
@@ -281,11 +291,6 @@ public struct WordLayoutPlanner: LayoutPlanner {
         max(minimum * scale, base * scale)
     }
 
-    private func estimatedTextSize(for word: String, fontSize: Double) -> CoreSize {
-        let width = max(fontSize * 1.5, Double(word.count) * fontSize * 0.58)
-        return CoreSize(width: width, height: fontSize * 1.18)
-    }
-
     private func anchoredX(
         rectWidth: Double,
         in region: CoreRect,
@@ -308,13 +313,9 @@ public struct WordLayoutPlanner: LayoutPlanner {
         depth: Double,
         opacity: Double
     ) -> LayoutWordPlacement {
-        LayoutWordPlacement(
+        WallpaperTextMeasurer.makePlacement(
             word: word,
             rect: rect,
-            baseline: CorePoint(
-                x: rect.minX,
-                y: rect.minY + fontSize * 0.88
-            ),
             fontSize: fontSize,
             depth: depth,
             opacity: opacity
