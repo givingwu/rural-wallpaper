@@ -97,6 +97,7 @@ public struct WallpaperHarness: Sendable {
                     try Task.checkCancellation()
 
                     context.layout = candidate
+                    context.evaluation = nil
                     try machine.apply(.layoutSelected)
 
                     let rendered = try renderEngine.render(
@@ -148,7 +149,7 @@ public struct WallpaperHarness: Sendable {
 
             return WallpaperHarnessResult(state: .failed, record: record)
         } catch {
-            if isCancellation(error) || Task.isCancelled {
+            if isCancellation(error) {
                 if machine.stage != .cancelled {
                     _ = try? machine.apply(.cancel)
                 }

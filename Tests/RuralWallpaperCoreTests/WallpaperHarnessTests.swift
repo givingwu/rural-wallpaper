@@ -297,6 +297,38 @@ final class WallpaperHarnessTests: XCTestCase {
         XCTAssertNil(result.record.failureReason)
     }
 
+    func testCancelledTaskWithNonCancellationErrorRecordsFailure() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-cancelled-real-error")
+        let sourceProvider = SuspendedThrowingSourceProvider(error: MockError.unexpectedCall)
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: sourceProvider,
+            aiProvider: MockAIProvider(words: [], analyses: [], evaluations: []),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: []),
+            renderEngine: MockRenderEngine(),
+            desktopSetter: MockDesktopWallpaperSetter(),
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: .default
+        )
+
+        let task = Task {
+            try await harness.run(display: display)
+        }
+        await sourceProvider.waitUntilStarted()
+        task.cancel()
+        sourceProvider.release()
+
+        let result = try await task.value
+        let failureReason = try XCTUnwrap(result.record.failureReason)
+
+        XCTAssertEqual(result.state, .failed)
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+        XCTAssertEqual(result.record.display, display)
+        XCTAssertTrue(failureReason.contains("MockError"))
+    }
+
     func testBackgroundRetryFailureDoesNotLeakPreviousAttemptLayoutOrEvaluation() async throws {
         let outputDirectory = try makeTemporaryDirectory()
         let display = makeDisplay(id: "display-context-reset")
@@ -335,6 +367,41 @@ final class WallpaperHarnessTests: XCTestCase {
         XCTAssertNil(result.record.layout)
         XCTAssertNil(result.record.evaluation)
         XCTAssertTrue(failureReason.contains("No layout candidates"))
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+    }
+
+    func testSecondLayoutCandidateRenderFailureDoesNotKeepPreviousEvaluation() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-stale-evaluation")
+        let firstPlan = makePlan(display: display, score: 0.2, word: "meadow")
+        let secondPlan = makePlan(display: display, score: 0.9, word: "ridge")
+        let firstEvaluation = makeEvaluation(score: 0.2)
+        let historyStore = MockHistoryStore()
+        let renderEngine = FailingRenderEngine(failingCall: 2, error: MockError.unexpectedCall)
+        let harness = WallpaperHarness(
+            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            aiProvider: MockAIProvider(
+                words: [VocabularyItem.samples(count: 3)],
+                analyses: [makeAnalysis()],
+                evaluations: [firstEvaluation]
+            ),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: [[firstPlan, secondPlan]]),
+            renderEngine: renderEngine,
+            desktopSetter: MockDesktopWallpaperSetter(),
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: AppSettings.default.withOverrides(
+                maxBackgroundAttempts: 1,
+                maxLayoutCandidates: 2
+            )
+        )
+
+        let result = try await harness.run(display: display)
+
+        XCTAssertEqual(result.state, .failed)
+        XCTAssertEqual(renderEngine.renderedPlans, [firstPlan, secondPlan])
+        XCTAssertEqual(result.record.layout, secondPlan)
+        XCTAssertNil(result.record.evaluation)
         XCTAssertEqual(historyStore.appendedRecords, [result.record])
     }
 
@@ -722,6 +789,36 @@ private final class MockRenderEngine: RenderEngine, @unchecked Sendable {
     }
 }
 
+private final class FailingRenderEngine: RenderEngine, @unchecked Sendable {
+    private(set) var renderedPlans: [LayoutPlan] = []
+    private let failingCall: Int
+    private let error: Error
+
+    init(failingCall: Int, error: Error) {
+        self.failingCall = failingCall
+        self.error = error
+    }
+
+    func render(
+        background: Data,
+        plan: LayoutPlan,
+        display: DisplayTarget
+    ) throws -> RenderedWallpaper {
+        renderedPlans.append(plan)
+
+        if renderedPlans.count == failingCall {
+            throw error
+        }
+
+        return RenderedWallpaper(
+            pngData: Data("render-\(renderedPlans.count)".utf8),
+            displayID: display.id,
+            layoutPlan: plan,
+            pixelSize: display.pixelSize
+        )
+    }
+}
+
 private final class MockDesktopWallpaperSetter: DesktopWallpaperSetter, @unchecked Sendable {
     private(set) var calls: [(fileURL: URL, display: DisplayTarget)] = []
     private let callLog: CallLog?
@@ -764,6 +861,65 @@ private struct ThrowingSourceProvider: SourceProvider {
 
     func makeSourceImage(for display: DisplayTarget, settings: AppSettings) async throws -> SourceImage {
         throw error
+    }
+}
+
+private final class SuspendedThrowingSourceProvider: SourceProvider, @unchecked Sendable {
+    let id = "suspended-throwing-source"
+    private let error: Error
+    private let lock = NSLock()
+    private var didStart = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(error: Error) {
+        self.error = error
+    }
+
+    func makeSourceImage(for display: DisplayTarget, settings: AppSettings) async throws -> SourceImage {
+        markStarted()
+
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            releaseContinuation = continuation
+            lock.unlock()
+        }
+
+        throw error
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if didStart {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                startWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+
+    func release() {
+        lock.lock()
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        lock.unlock()
+
+        continuation?.resume()
+    }
+
+    private func markStarted() {
+        lock.lock()
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        lock.unlock()
+
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
