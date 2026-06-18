@@ -150,45 +150,48 @@ public actor DisplayCoordinator {
         }
 
         let token = UUID()
-        let task = makeTask(for: display)
+        let task = makeTask(for: display, token: token)
         let activeRun = ActiveRun(token: token, signature: signature, task: task)
         activeRuns[display.id] = activeRun
-
-        Task {
-            _ = await task.value
-            clearActiveRun(displayID: display.id, token: token)
-        }
 
         return activeRun
     }
 
-    private func makeTask(for display: DisplayTarget) -> Task<DisplayRunResult, Never> {
+    private func makeTask(
+        for display: DisplayTarget,
+        token: UUID
+    ) -> Task<DisplayRunResult, Never> {
         let runner = runner
 
         return Task {
+            let result: DisplayRunResult
+
             do {
-                let result = try await runner.run(display: display)
-                return DisplayRunResult(
+                let harnessResult = try await runner.run(display: display)
+                result = DisplayRunResult(
                     display: display,
-                    state: result.state,
-                    harnessResult: result,
-                    errorDescription: result.state == .failed ? result.record.failureReason : nil
+                    state: harnessResult.state,
+                    harnessResult: harnessResult,
+                    errorDescription: harnessResult.state == .failed ? harnessResult.record.failureReason : nil
                 )
             } catch is CancellationError {
-                return DisplayRunResult(
+                result = DisplayRunResult(
                     display: display,
                     state: .cancelled,
                     harnessResult: nil,
                     errorDescription: nil
                 )
             } catch {
-                return DisplayRunResult(
+                result = DisplayRunResult(
                     display: display,
                     state: .failed,
                     harnessResult: nil,
                     errorDescription: Self.errorDescription(from: error)
                 )
             }
+
+            clearActiveRun(displayID: display.id, token: token)
+            return result
         }
     }
 
