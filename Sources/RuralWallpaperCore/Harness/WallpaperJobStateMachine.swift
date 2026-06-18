@@ -77,7 +77,8 @@ public struct WallpaperJobStateMachine: Equatable, Sendable {
             return .evaluating
         case (.evaluating, .evaluationRejected):
             return .planningLayout
-        case (.planningLayout, .retryBackground):
+        case (.extractingWords, .retryBackground),
+             (.planningLayout, .retryBackground):
             return .makingSource
         case (.evaluating, .evaluationAccepted):
             return .settingWallpaper

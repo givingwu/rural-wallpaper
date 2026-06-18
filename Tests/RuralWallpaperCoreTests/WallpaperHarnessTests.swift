@@ -271,6 +271,190 @@ final class WallpaperHarnessTests: XCTestCase {
         XCTAssertEqual(succeedingHistory.appendedRecords.first?.display.id, succeedingDisplay.id)
     }
 
+    func testCancellationReturnsCancelledWithoutSettingDesktopOrRecordingHistory() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-cancelled")
+        let desktopSetter = MockDesktopWallpaperSetter()
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: ThrowingSourceProvider(error: CancellationError()),
+            aiProvider: MockAIProvider(words: [], analyses: [], evaluations: []),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: []),
+            renderEngine: MockRenderEngine(),
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: .default
+        )
+
+        let result = try await harness.run(display: display)
+
+        XCTAssertEqual(result.state, .cancelled)
+        XCTAssertEqual(result.record.display, display)
+        XCTAssertTrue(desktopSetter.calls.isEmpty)
+        XCTAssertTrue(historyStore.appendedRecords.isEmpty)
+        XCTAssertNil(result.record.finalImageURL)
+        XCTAssertNil(result.record.failureReason)
+    }
+
+    func testBackgroundRetryFailureDoesNotLeakPreviousAttemptLayoutOrEvaluation() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-context-reset")
+        let firstPlan = makePlan(display: display, score: 0.2, word: "meadow")
+        let firstWords = makeVocabularyItems(prefix: "first", count: 3)
+        let secondWords = makeVocabularyItems(prefix: "second", count: 3)
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: MockSourceProvider(
+                images: [
+                    makeSourceImage(id: "background-1"),
+                    makeSourceImage(id: "background-2")
+                ]
+            ),
+            aiProvider: MockAIProvider(
+                words: [firstWords, secondWords],
+                analyses: [makeAnalysis(), makeAnalysis()],
+                evaluations: [makeEvaluation(score: 0.2)]
+            ),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: [[firstPlan], []]),
+            renderEngine: MockRenderEngine(),
+            desktopSetter: MockDesktopWallpaperSetter(),
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: AppSettings.default.withOverrides(
+                maxBackgroundAttempts: 2,
+                maxLayoutCandidates: 1
+            )
+        )
+
+        let result = try await harness.run(display: display)
+        let failureReason = try XCTUnwrap(result.record.failureReason)
+
+        XCTAssertEqual(result.state, .failed)
+        XCTAssertEqual(result.record.words, secondWords)
+        XCTAssertNil(result.record.layout)
+        XCTAssertNil(result.record.evaluation)
+        XCTAssertTrue(failureReason.contains("No layout candidates"))
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+    }
+
+    func testInvalidProviderWordCountFailsWithoutRenderingOrSettingDesktop() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-invalid-words")
+        let renderEngine = MockRenderEngine()
+        let desktopSetter = MockDesktopWallpaperSetter()
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            aiProvider: MockAIProvider(
+                words: [makeVocabularyItems(prefix: "short", count: 2)],
+                analyses: [],
+                evaluations: []
+            ),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: []),
+            renderEngine: renderEngine,
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: AppSettings.default.withOverrides(
+                maxBackgroundAttempts: 1,
+                maxLayoutCandidates: 1
+            )
+        )
+
+        let result = try await harness.run(display: display)
+        let failureReason = try XCTUnwrap(result.record.failureReason)
+
+        XCTAssertEqual(result.state, .failed)
+        XCTAssertTrue(result.record.words.isEmpty)
+        XCTAssertNil(result.record.layout)
+        XCTAssertNil(result.record.evaluation)
+        XCTAssertTrue(renderEngine.renderedPlans.isEmpty)
+        XCTAssertTrue(desktopSetter.calls.isEmpty)
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+        XCTAssertTrue(failureReason.contains("word count"))
+        XCTAssertTrue(failureReason.contains("3...5"))
+    }
+
+    func testInvalidProviderWordCountRetriesWithNextBackground() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-invalid-words-retry")
+        let validWords = makeVocabularyItems(prefix: "valid", count: 3)
+        let secondPlan = makePlan(display: display, score: 0.9, word: "valid")
+        let sourceProvider = MockSourceProvider(
+            images: [
+                makeSourceImage(id: "background-invalid"),
+                makeSourceImage(id: "background-valid")
+            ]
+        )
+        let aiProvider = MockAIProvider(
+            words: [
+                makeVocabularyItems(prefix: "short", count: 2),
+                validWords
+            ],
+            analyses: [makeAnalysis()],
+            evaluations: [makeEvaluation(score: 0.97)]
+        )
+        let renderEngine = MockRenderEngine()
+        let desktopSetter = MockDesktopWallpaperSetter()
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: sourceProvider,
+            aiProvider: aiProvider,
+            layoutPlanner: MockLayoutPlanner(layoutBatches: [[secondPlan]]),
+            renderEngine: renderEngine,
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: AppSettings.default.withOverrides(
+                maxBackgroundAttempts: 2,
+                maxLayoutCandidates: 1
+            )
+        )
+
+        let result = try await harness.run(display: display)
+
+        XCTAssertEqual(result.state, .succeeded)
+        XCTAssertEqual(sourceProvider.makeSourceImageCalls.count, 2)
+        XCTAssertEqual(aiProvider.analyzeImageCalls.count, 1)
+        XCTAssertEqual(renderEngine.renderedPlans, [secondPlan])
+        XCTAssertEqual(desktopSetter.calls.count, 1)
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+        XCTAssertEqual(result.record.words, validWords)
+    }
+
+    func testFailureReasonIdentifiesTextCorrectnessGateFailure() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-text-correctness")
+        let harness = WallpaperHarness(
+            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            aiProvider: MockAIProvider(
+                words: [VocabularyItem.samples(count: 3)],
+                analyses: [makeAnalysis()],
+                evaluations: [
+                    makeEvaluation(score: 0.98, textCorrectness: 0.7)
+                ]
+            ),
+            layoutPlanner: MockLayoutPlanner(
+                layoutBatches: [[makePlan(display: display, score: 0.9)]]
+            ),
+            renderEngine: MockRenderEngine(),
+            desktopSetter: MockDesktopWallpaperSetter(),
+            historyStore: MockHistoryStore(),
+            outputDirectory: outputDirectory,
+            settings: AppSettings.default.withOverrides(
+                maxBackgroundAttempts: 1,
+                maxLayoutCandidates: 1
+            )
+        )
+
+        let result = try await harness.run(display: display)
+        let failureReason = try XCTUnwrap(result.record.failureReason)
+
+        XCTAssertEqual(result.state, .failed)
+        XCTAssertTrue(failureReason.contains("text correctness"))
+    }
+
     func testStateMachineOnlyAllowsValidOrderedTransitions() throws {
         var machine = WallpaperJobStateMachine()
 
@@ -360,17 +544,34 @@ final class WallpaperHarnessTests: XCTestCase {
         )
     }
 
-    private func makeEvaluation(score: Double) -> EvaluationResult {
+    private func makeEvaluation(
+        score: Double,
+        noBadOcclusion: Double? = nil,
+        textCorrectness: Double? = nil
+    ) -> EvaluationResult {
         EvaluationResult(
             readability: score,
             sceneFit: score,
             depthBelievability: score,
             desktopCalmness: score,
             wordRelevance: score,
-            noBadOcclusion: score,
-            textCorrectness: score,
+            noBadOcclusion: noBadOcclusion ?? score,
+            textCorrectness: textCorrectness ?? score,
             notes: "score \(score)"
         )
+    }
+
+    private func makeVocabularyItems(prefix: String, count: Int) -> [VocabularyItem] {
+        (1...count).map { index in
+            VocabularyItem(
+                word: "\(prefix)-\(index)",
+                partOfSpeech: "noun",
+                zhDefinition: "测试词",
+                example: "The \(prefix) word appears in a test scene.",
+                difficulty: 2,
+                sourceReason: "Harness test fixture."
+            )
+        }
     }
 }
 
@@ -555,6 +756,15 @@ private final class MockHistoryStore: HistoryStore, @unchecked Sendable {
 
 private enum MockError: Error {
     case unexpectedCall
+}
+
+private struct ThrowingSourceProvider: SourceProvider {
+    let id = "throwing-source"
+    var error: Error
+
+    func makeSourceImage(for display: DisplayTarget, settings: AppSettings) async throws -> SourceImage {
+        throw error
+    }
 }
 
 private extension AppSettings {

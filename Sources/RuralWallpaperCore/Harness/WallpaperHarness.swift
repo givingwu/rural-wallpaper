@@ -48,19 +48,33 @@ public struct WallpaperHarness: Sendable {
             try machine.apply(.start)
 
             for backgroundAttempt in 1...maxBackgroundAttempts {
+                try Task.checkCancellation()
+
                 if backgroundAttempt > 1 {
                     try machine.apply(.retryBackground)
                 }
+
+                context = WallpaperHarnessContext(display: display, providerID: sourceProvider.id)
 
                 let sourceImage = try await sourceProvider.makeSourceImage(for: display, settings: settings)
                 context.sourceImageURL = sourceImageURL(from: sourceImage.attribution)
                 context.attribution = sourceImage.attribution
                 try machine.apply(.sourceReady)
 
+                try Task.checkCancellation()
                 let words = try await aiProvider.extractWords(from: sourceImage.imageData, countRange: 3...5)
+                guard isValidWordCount(words) else {
+                    context.failureReason = invalidWordCountFailureReason(
+                        count: words.count,
+                        backgroundAttempt: backgroundAttempt
+                    )
+                    continue
+                }
+
                 context.words = words
                 try machine.apply(.wordsExtracted)
 
+                try Task.checkCancellation()
                 let analysis = try await aiProvider.analyzeImage(sourceImage.imageData, display: display)
                 try machine.apply(.analysisReady)
 
@@ -80,6 +94,8 @@ public struct WallpaperHarness: Sendable {
                 }
 
                 for candidate in candidates {
+                    try Task.checkCancellation()
+
                     context.layout = candidate
                     try machine.apply(.layoutSelected)
 
@@ -91,6 +107,7 @@ public struct WallpaperHarness: Sendable {
                     context.layout = rendered.layoutPlan
                     try machine.apply(.rendered)
 
+                    try Task.checkCancellation()
                     let evaluation = try await aiProvider.evaluate(
                         renderedImage: rendered.pngData,
                         plan: rendered.layoutPlan,
@@ -100,9 +117,12 @@ public struct WallpaperHarness: Sendable {
 
                     if evaluation.passes(threshold: minimumScore) {
                         try machine.apply(.evaluationAccepted)
+                        try Task.checkCancellation()
+
                         let fileURL = try writeRenderedWallpaper(rendered, display: display)
                         let record = context.makeSuccessRecord(finalImageURL: fileURL)
 
+                        try Task.checkCancellation()
                         try desktopSetter.setWallpaper(fileURL: fileURL, for: display)
                         try machine.apply(.wallpaperSet)
 
@@ -112,8 +132,8 @@ public struct WallpaperHarness: Sendable {
                         return WallpaperHarnessResult(state: .succeeded, record: record)
                     }
 
-                    context.failureReason = lowScoreFailureReason(
-                        score: evaluation.averageScore,
+                    context.failureReason = evaluationFailureReason(
+                        evaluation,
                         backgroundAttempt: backgroundAttempt
                     )
                     try machine.apply(.evaluationRejected)
@@ -128,6 +148,17 @@ public struct WallpaperHarness: Sendable {
 
             return WallpaperHarnessResult(state: .failed, record: record)
         } catch {
+            if isCancellation(error) || Task.isCancelled {
+                if machine.stage != .cancelled {
+                    _ = try? machine.apply(.cancel)
+                }
+
+                return WallpaperHarnessResult(
+                    state: .cancelled,
+                    record: context.makeCancelledRecord()
+                )
+            }
+
             if machine.stage != .failed {
                 _ = try? machine.apply(.fail)
             }
@@ -149,6 +180,18 @@ public struct WallpaperHarness: Sendable {
 
     private var minimumScore: Double {
         min(max(settings.minimumScore, 0), 1)
+    }
+
+    private var minimumTextCorrectness: Double {
+        0.95
+    }
+
+    private var minimumNoBadOcclusion: Double {
+        0.75
+    }
+
+    private func isValidWordCount(_ words: [VocabularyItem]) -> Bool {
+        (3...5).contains(words.count)
     }
 
     private func writeRenderedWallpaper(
@@ -177,17 +220,53 @@ public struct WallpaperHarness: Sendable {
         }
     }
 
-    private func lowScoreFailureReason(score: Double, backgroundAttempt: Int) -> String {
-        "Rendered layout scored \(formatScore(score)), below minimum \(formatScore(minimumScore)) on background attempt \(backgroundAttempt)."
+    private func invalidWordCountFailureReason(count: Int, backgroundAttempt: Int) -> String {
+        "Provider returned word count \(count) outside required 3...5 on background attempt \(backgroundAttempt)."
+    }
+
+    private func evaluationFailureReason(
+        _ evaluation: EvaluationResult,
+        backgroundAttempt: Int
+    ) -> String {
+        var failedGates: [String] = []
+
+        if evaluation.averageScore < minimumScore {
+            failedGates.append(
+                "average score \(formatScore(evaluation.averageScore)) below minimum \(formatScore(minimumScore))"
+            )
+        }
+
+        if evaluation.textCorrectness < minimumTextCorrectness {
+            failedGates.append(
+                "text correctness \(formatScore(evaluation.textCorrectness)) below minimum \(formatScore(minimumTextCorrectness))"
+            )
+        }
+
+        if evaluation.noBadOcclusion < minimumNoBadOcclusion {
+            failedGates.append(
+                "occlusion score \(formatScore(evaluation.noBadOcclusion)) below minimum \(formatScore(minimumNoBadOcclusion))"
+            )
+        }
+
+        let reason = failedGates.isEmpty
+            ? "evaluation did not pass"
+            : failedGates.joined(separator: "; ")
+
+        return "Rendered layout failed evaluation on background attempt \(backgroundAttempt): \(reason)."
     }
 
     private func exhaustedFailureReason(from context: WallpaperHarnessContext) -> String {
-        if let evaluation = context.evaluation {
-            return "No layout candidate passed after \(maxBackgroundAttempts) background attempt(s). Last score: \(formatScore(evaluation.averageScore)). Minimum required: \(formatScore(minimumScore))."
+        let prefix = "No layout candidate passed after \(maxBackgroundAttempts) background attempt(s)."
+
+        if let failureReason = context.failureReason {
+            return "\(prefix) Last attempt: \(failureReason)"
         }
 
-        return context.failureReason
-            ?? "No layout candidate passed after \(maxBackgroundAttempts) background attempt(s)."
+        if let evaluation = context.evaluation {
+            return "\(prefix) Last score: \(formatScore(evaluation.averageScore)). Minimum required: \(formatScore(minimumScore))."
+        }
+
+        return prefix
     }
 
     private func failureReason(from error: Error) -> String {
@@ -198,6 +277,10 @@ public struct WallpaperHarness: Sendable {
         }
 
         return "Wallpaper generation failed: \(String(describing: type(of: error)))."
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError
     }
 
     private func formatScore(_ score: Double) -> String {
@@ -249,6 +332,19 @@ private struct WallpaperHarnessContext {
             attribution: attribution,
             providerID: providerID,
             failureReason: failureReason
+        )
+    }
+
+    func makeCancelledRecord() -> GeneratedWallpaper {
+        GeneratedWallpaper(
+            finalImageURL: nil,
+            sourceImageURL: sourceImageURL,
+            display: display,
+            words: words,
+            layout: layout,
+            evaluation: evaluation,
+            attribution: attribution,
+            providerID: providerID
         )
     }
 }
