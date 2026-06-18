@@ -97,8 +97,8 @@ public final class FileHistoryStore: HistoryStore, @unchecked Sendable {
         }
 
         let checks = [
-            #"\bapi[\s_-]*key\b"#,
-            #"\baccess[\s_-]*token\b"#,
+            #"\bapi[\s_-]*key\b(?:\s*[:=]\s*|\s+)(?!(?:is|was|missing|required|empty|not|expired)\b)[A-Za-z0-9._~+/\-=]{6,}"#,
+            #"\baccess[\s_-]*token\b(?:\s*[:=]\s*|\s+)(?!(?:is|was|missing|required|empty|not|expired)\b)[A-Za-z0-9._~+/\-=]{6,}"#,
             #"\bauthorization\b\s*[:=]"#,
             #"\bbearer\s*[:=]?\s+[A-Za-z0-9._~+/\-=]{6,}"#,
             #"(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}"#

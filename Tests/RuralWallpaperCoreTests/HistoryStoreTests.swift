@@ -161,6 +161,20 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(try store.recent(displayID: display.id, limit: 10), [record])
     }
 
+    func testAppendDoesNotRejectCredentialLabelsWithoutSecretValues() throws {
+        let store = try makeStore()
+        let display = makeDisplay(id: "display-missing-credential")
+        let record = makeRecord(
+            id: "safe-missing-credential",
+            display: display,
+            failureReason: "The API key is missing and the access token expired."
+        )
+
+        try store.append(record)
+
+        XCTAssertEqual(try store.recent(displayID: display.id, limit: 10), [record])
+    }
+
     func testConcurrentStoresForSamePathDoNotLoseRecords() async throws {
         let directory = try makeTemporaryDirectory()
         let storageURL = directory.appendingPathComponent("history.json")
