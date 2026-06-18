@@ -49,4 +49,4 @@ Scheduler / Manual Trigger
 
 ## 当前状态
 
-项目处于实施计划阶段，尚未开始业务代码实现。下一步是选择执行方式，然后按计划进入 Swift/SwiftUI 工程搭建。
+项目已进入 Swift Package 业务代码实现阶段。当前核心模块包含配置存储、Provider Harness、渲染与布局基础能力，以及 DisplayCoordinator 多显示器调度：可按 `AppSettings.enabledDisplayIDs` 过滤当前显示器，为每块启用显示器并发运行壁纸生成，并在屏幕变化时取消已消失显示器的任务。
