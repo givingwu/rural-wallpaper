@@ -37,6 +37,7 @@ public struct DisplayRunResult: Equatable, Sendable {
 
 public actor DisplayCoordinator {
     private struct ActiveRun: Sendable {
+        var display: DisplayTarget
         var token: UUID
         var task: Task<DisplayRunResult, Never>
     }
@@ -91,7 +92,9 @@ public actor DisplayCoordinator {
     }
 
     public func cancelAllRunningTasks() {
-        activeRuns.values.forEach { $0.task.cancel() }
+        let runs = activeRuns.values
+        activeRuns.removeAll()
+        runs.forEach { $0.task.cancel() }
     }
 
     public func activeDisplayIDs() -> Set<String> {
@@ -112,17 +115,23 @@ public actor DisplayCoordinator {
     private func cancelRunsNotIn(_ enabledDisplayIDs: Set<String>) {
         for (displayID, activeRun) in activeRuns where !enabledDisplayIDs.contains(displayID) {
             activeRun.task.cancel()
+            activeRuns[displayID] = nil
         }
     }
 
     private func activeRun(for display: DisplayTarget) -> ActiveRun {
         if let activeRun = activeRuns[display.id] {
-            return activeRun
+            guard activeRun.display != display else {
+                return activeRun
+            }
+
+            activeRun.task.cancel()
+            activeRuns[display.id] = nil
         }
 
         let token = UUID()
         let task = makeTask(for: display)
-        let activeRun = ActiveRun(token: token, task: task)
+        let activeRun = ActiveRun(display: display, token: token, task: task)
         activeRuns[display.id] = activeRun
 
         Task {

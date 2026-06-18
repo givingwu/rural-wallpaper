@@ -96,14 +96,81 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(startedDisplayIDs, ["only"])
     }
 
-    private func makeDisplay(id: String) -> DisplayTarget {
+    func testSequentialRunOnceStartsNewRunAfterPreviousRunCompleted() async throws {
+        let display = makeDisplay(id: "sequential")
+        let provider = StubDisplayProvider(displays: [display])
+        let runner = RecordingDisplayRunner()
+        let coordinator = DisplayCoordinator(displayProvider: provider, runner: runner)
+
+        let firstResults = await coordinator.runOnce(settings: .default)
+        let activeAfterFirstRun = await coordinator.activeDisplayIDs()
+        let secondResults = await coordinator.runOnce(settings: .default)
+        let startedDisplayIDs = await runner.startedDisplayIDs()
+
+        XCTAssertEqual(firstResults.map(\.display.id), ["sequential"])
+        XCTAssertTrue(activeAfterFirstRun.isEmpty)
+        XCTAssertEqual(secondResults.map(\.display.id), ["sequential"])
+        XCTAssertEqual(startedDisplayIDs, ["sequential", "sequential"])
+    }
+
+    func testRefreshDisplaysRestartsRunWhenDisplaySnapshotChangesForSameID() async throws {
+        let original = makeDisplay(id: "shared")
+        let resized = makeDisplay(
+            id: "shared",
+            frame: CoreRect(x: 0, y: 0, width: 1920, height: 1080),
+            pixelSize: PixelSize(width: 3840, height: 2160),
+            scale: 2
+        )
+        let provider = StubDisplayProvider(displays: [original])
+        let runner = RecordingDisplayRunner(suspendUntilCancelledDisplayIDs: ["shared"])
+        let coordinator = DisplayCoordinator(displayProvider: provider, runner: runner)
+        let cancelledOriginalRun = expectation(description: "original run cancelled")
+        let startedReplacementRun = expectation(description: "replacement run started")
+
+        await runner.fulfillWhenCancelled(count: 1, expectation: SendableExpectation(cancelledOriginalRun))
+        await runner.fulfillWhenStarted(count: 2, expectation: SendableExpectation(startedReplacementRun))
+
+        await coordinator.refreshDisplays(settings: .default)
+        await runner.waitUntilStarted(count: 1)
+
+        provider.setDisplays([resized])
+        await coordinator.refreshDisplays(settings: .default)
+
+        await fulfillment(of: [cancelledOriginalRun, startedReplacementRun], timeout: 1)
+        await coordinator.cancelAllRunningTasks()
+
+        let startedDisplays = await runner.startedDisplays()
+        XCTAssertEqual(startedDisplays.map(\.pixelSize), [original.pixelSize, resized.pixelSize])
+    }
+
+    func testDisplayMainThreadBridgeRunsBackgroundWorkOnMainThread() async throws {
+        let ranOnMainThread = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let result = DisplayMainThread.sync {
+                    Thread.isMainThread
+                }
+                continuation.resume(returning: result)
+            }
+        }
+
+        XCTAssertTrue(ranOnMainThread)
+    }
+
+    private func makeDisplay(
+        id: String,
+        frame: CoreRect = CoreRect(x: 0, y: 0, width: 1440, height: 900),
+        pixelSize: PixelSize = PixelSize(width: 1440, height: 900),
+        scale: Double = 2,
+        colorSpace: String = "Display P3",
+        isMain: Bool? = nil
+    ) -> DisplayTarget {
         DisplayTarget(
             id: id,
-            frame: CoreRect(x: 0, y: 0, width: 1440, height: 900),
-            pixelSize: PixelSize(width: 1440, height: 900),
-            scale: 2,
-            colorSpace: "Display P3",
-            isMain: id == "left" || id == "enabled",
+            frame: frame,
+            pixelSize: pixelSize,
+            scale: scale,
+            colorSpace: colorSpace,
+            isMain: isMain ?? (id == "left" || id == "enabled"),
             friendlyName: id
         )
     }
@@ -134,14 +201,21 @@ private actor RecordingDisplayRunner: DisplayWallpaperRunner {
     private let failingDisplayIDs: Set<String>
     private let suspendUntilCancelledDisplayIDs: Set<String>
     private let delayNanoseconds: UInt64
+    private var startedTargets: [DisplayTarget] = []
     private var started: [String] = []
     private var cancelled: [String] = []
     private var activeRunCount = 0
     private var peakActiveRunCount = 0
     private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var startExpectationWaiters: [
+        (count: Int, expectation: SendableExpectation)
+    ] = []
     private var cancellationWaiters: [
         String: [CheckedContinuation<Void, Never>]
     ] = [:]
+    private var cancellationCountExpectationWaiters: [
+        (count: Int, expectation: SendableExpectation)
+    ] = []
 
     init(
         failingDisplayIDs: Set<String> = [],
@@ -154,10 +228,12 @@ private actor RecordingDisplayRunner: DisplayWallpaperRunner {
     }
 
     func run(display: DisplayTarget) async throws -> WallpaperHarnessResult {
+        startedTargets.append(display)
         started.append(display.id)
         activeRunCount += 1
         peakActiveRunCount = max(peakActiveRunCount, activeRunCount)
         resumeSatisfiedStartWaiters()
+        fulfillSatisfiedStartExpectations()
         defer { activeRunCount -= 1 }
 
         if failingDisplayIDs.contains(display.id) {
@@ -172,6 +248,7 @@ private actor RecordingDisplayRunner: DisplayWallpaperRunner {
             } catch is CancellationError {
                 cancelled.append(display.id)
                 resumeCancellationWaiters(for: display.id)
+                fulfillSatisfiedCancellationCountExpectations()
                 throw CancellationError()
             }
         }
@@ -201,6 +278,26 @@ private actor RecordingDisplayRunner: DisplayWallpaperRunner {
         await withCheckedContinuation { continuation in
             cancellationWaiters[displayID, default: []].append(continuation)
         }
+    }
+
+    func fulfillWhenStarted(count: Int, expectation: SendableExpectation) {
+        if started.count >= count {
+            expectation.fulfill()
+        } else {
+            startExpectationWaiters.append((count: count, expectation: expectation))
+        }
+    }
+
+    func fulfillWhenCancelled(count: Int, expectation: SendableExpectation) {
+        if cancelled.count >= count {
+            expectation.fulfill()
+        } else {
+            cancellationCountExpectationWaiters.append((count: count, expectation: expectation))
+        }
+    }
+
+    func startedDisplays() -> [DisplayTarget] {
+        startedTargets
     }
 
     func startedDisplayIDs() -> [String] {
@@ -241,9 +338,33 @@ private actor RecordingDisplayRunner: DisplayWallpaperRunner {
         ready.forEach { $0.continuation.resume() }
     }
 
+    private func fulfillSatisfiedStartExpectations() {
+        let ready = startExpectationWaiters.filter { started.count >= $0.count }
+        startExpectationWaiters.removeAll { started.count >= $0.count }
+        ready.forEach { $0.expectation.fulfill() }
+    }
+
     private func resumeCancellationWaiters(for displayID: String) {
         let waiters = cancellationWaiters.removeValue(forKey: displayID) ?? []
         waiters.forEach { $0.resume() }
+    }
+
+    private func fulfillSatisfiedCancellationCountExpectations() {
+        let ready = cancellationCountExpectationWaiters.filter { cancelled.count >= $0.count }
+        cancellationCountExpectationWaiters.removeAll { cancelled.count >= $0.count }
+        ready.forEach { $0.expectation.fulfill() }
+    }
+}
+
+private final class SendableExpectation: @unchecked Sendable {
+    private let expectation: XCTestExpectation
+
+    init(_ expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func fulfill() {
+        expectation.fulfill()
     }
 }
 

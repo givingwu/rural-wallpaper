@@ -322,6 +322,36 @@ final class WallpaperHarnessTests: XCTestCase {
         XCTAssertNil(result.record.failureReason)
     }
 
+    func testRawNSURLErrorCancelledReturnsCancelledWithoutRecordingHistory() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-raw-nsurl-cancelled")
+        let desktopSetter = MockDesktopWallpaperSetter()
+        let historyStore = MockHistoryStore()
+        let harness = WallpaperHarness(
+            sourceProvider: ThrowingSourceProvider(
+                error: NSError(
+                    domain: NSURLErrorDomain,
+                    code: NSURLErrorCancelled
+                )
+            ),
+            aiProvider: MockAIProvider(words: [], analyses: [], evaluations: []),
+            layoutPlanner: MockLayoutPlanner(layoutBatches: []),
+            renderEngine: MockRenderEngine(),
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: .default
+        )
+
+        let result = try await harness.run(display: display)
+
+        XCTAssertEqual(result.state, .cancelled)
+        XCTAssertEqual(result.record.display, display)
+        XCTAssertTrue(desktopSetter.calls.isEmpty)
+        XCTAssertTrue(historyStore.appendedRecords.isEmpty)
+        XCTAssertNil(result.record.failureReason)
+    }
+
     func testCancelledTaskWithNonCancellationErrorRecordsFailure() async throws {
         let outputDirectory = try makeTemporaryDirectory()
         let display = makeDisplay(id: "display-cancelled-real-error")

@@ -5,8 +5,10 @@ public struct NSScreenDisplayProvider: DisplayProvider {
     public init() {}
 
     public func currentDisplays() -> [DisplayTarget] {
-        NSScreen.screens.enumerated().map { index, screen in
-            Self.makeDisplayTarget(for: screen, index: index)
+        DisplayMainThread.sync {
+            NSScreen.screens.enumerated().map { index, screen in
+                Self.makeDisplayTarget(for: screen, index: index)
+            }
         }
     }
 
