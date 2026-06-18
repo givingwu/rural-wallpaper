@@ -178,6 +178,58 @@ final class LayoutPlannerTests: XCTestCase {
         XCTAssertEqual(plan.depthMode, .foregroundOnly)
     }
 
+    func testDepthAwareLayoutAssignsMeaningfulDepthValues() throws {
+        let planner = WordLayoutPlanner()
+
+        let plan = try XCTUnwrap(
+            planner.makeLayoutCandidates(
+                display: makeDisplay(),
+                analysis: ImageAnalysis(
+                    summary: "A foreground field with a soft background ridge.",
+                    safeTextRegions: [CoreRect(x: 120, y: 220, width: 920, height: 260)],
+                    maskConfidence: 0.9,
+                    depthHints: ["soft background ridge"]
+                ),
+                words: VocabularyItem.samples(count: 5),
+                maxCandidates: 1
+            ).first
+        )
+
+        XCTAssertEqual(plan.depthMode, .depthAware)
+        XCTAssertTrue(
+            plan.wordPlacements.contains { $0.depth != 0 },
+            "depth-aware layouts should include non-neutral depth values"
+        )
+        XCTAssertGreaterThan(
+            Set(plan.wordPlacements.map(\.depth)).count,
+            1,
+            "depth-aware layouts should vary depth across placements"
+        )
+    }
+
+    func testForegroundAwareLayoutAssignsForegroundDepthValues() throws {
+        let planner = WordLayoutPlanner()
+
+        let plan = try XCTUnwrap(
+            planner.makeLayoutCandidates(
+                display: makeDisplay(),
+                analysis: ImageAnalysis(
+                    summary: "A clear subject mask without explicit depth hints.",
+                    safeTextRegions: [CoreRect(x: 120, y: 220, width: 920, height: 260)],
+                    maskConfidence: 0.9
+                ),
+                words: VocabularyItem.samples(count: 4),
+                maxCandidates: 1
+            ).first
+        )
+
+        XCTAssertEqual(plan.depthMode, .foregroundAware)
+        XCTAssertTrue(
+            plan.wordPlacements.contains { $0.depth > 0 },
+            "foreground-aware layouts should bias at least one word toward foreground depth"
+        )
+    }
+
     func testEmptySafeTextRegionsUsesUpperMiddleFallback() throws {
         let display = makeDisplay(width: 1200, height: 800)
         let planner = WordLayoutPlanner()

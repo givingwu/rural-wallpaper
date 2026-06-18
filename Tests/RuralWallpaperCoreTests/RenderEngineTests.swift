@@ -83,6 +83,49 @@ final class RenderEngineTests: XCTestCase {
         )
     }
 
+    func testTextStyleUsesPlacementDepthWithoutChangingBoundsContract() throws {
+        let basePlacement = WallpaperTextMeasurer.makePlacement(
+            word: "MEADOW",
+            rect: CoreRect(x: 24, y: 36, width: 250, height: 78),
+            fontSize: 52,
+            depth: 0,
+            opacity: 0.95
+        )
+        let foregroundPlacement = WallpaperTextMeasurer.makePlacement(
+            word: "MEADOW",
+            rect: basePlacement.rect,
+            fontSize: basePlacement.fontSize,
+            depth: 0.75,
+            opacity: basePlacement.opacity
+        )
+
+        let baseRun = WallpaperTextMeasurer.textRun(for: basePlacement)
+        let foregroundRun = WallpaperTextMeasurer.textRun(for: foregroundPlacement)
+        let baseShadow = try XCTUnwrap(
+            baseRun.attributedWord.attribute(
+                .shadow,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSShadow
+        )
+        let foregroundShadow = try XCTUnwrap(
+            foregroundRun.attributedWord.attribute(
+                .shadow,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSShadow
+        )
+
+        XCTAssertNotEqual(baseShadow.shadowBlurRadius, foregroundShadow.shadowBlurRadius)
+        XCTAssertNotEqual(baseShadow.shadowOffset, foregroundShadow.shadowOffset)
+        XCTAssertNotEqual(shadowAlpha(baseShadow), shadowAlpha(foregroundShadow))
+        assertCGRect(
+            foregroundRun.textBounds,
+            isInside: WallpaperTextMeasurer.cgRect(from: foregroundPlacement.rect),
+            tolerance: WallpaperTextMeasurer.boundsTolerance
+        )
+    }
+
     func testTooSmallTextRectThrowsInvalidLayout() throws {
         let display = makeDisplay(width: 420, height: 240)
         let plan = makePlan(
@@ -512,6 +555,25 @@ final class RenderEngineTests: XCTestCase {
         XCTAssertLessThan(color.redComponent, 0.08, file: file, line: line)
         XCTAssertGreaterThan(color.greenComponent, 0.90, file: file, line: line)
         XCTAssertLessThan(color.blueComponent, 0.08, file: file, line: line)
+    }
+
+    private func shadowAlpha(_ shadow: NSShadow) -> CGFloat? {
+        shadow.shadowColor?
+            .usingColorSpace(.deviceRGB)?
+            .alphaComponent
+    }
+
+    private func assertCGRect(
+        _ rect: CGRect,
+        isInside bounds: CGRect,
+        tolerance: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThanOrEqual(rect.minX, bounds.minX - tolerance, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(rect.minY, bounds.minY - tolerance, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxX, bounds.maxX + tolerance, file: file, line: line)
+        XCTAssertLessThanOrEqual(rect.maxY, bounds.maxY + tolerance, file: file, line: line)
     }
 }
 

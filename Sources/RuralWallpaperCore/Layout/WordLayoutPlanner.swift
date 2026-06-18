@@ -124,6 +124,7 @@ public struct WordLayoutPlanner: LayoutPlanner {
                     guard let placements = makePlacements(
                         in: regionChoice.rect,
                         words: words,
+                        depthMode: depthMode,
                         anchor: anchor,
                         scale: scale
                     ) else {
@@ -162,6 +163,7 @@ public struct WordLayoutPlanner: LayoutPlanner {
     private func makePlacements(
         in region: CoreRect,
         words: [VocabularyItem],
+        depthMode: LayoutDepthMode,
         anchor: LayoutAnchor,
         scale: Double
     ) -> [LayoutWordPlacement]? {
@@ -203,7 +205,11 @@ public struct WordLayoutPlanner: LayoutPlanner {
                 word: words[0].word,
                 rect: mainRect,
                 fontSize: mainFontSize,
-                depth: 0.0,
+                depth: plannedDepth(
+                    forPlacementAt: 0,
+                    totalPlacements: words.count,
+                    depthMode: depthMode
+                ),
                 opacity: mainOpacity
             )
         ]
@@ -254,7 +260,11 @@ public struct WordLayoutPlanner: LayoutPlanner {
                     word: helperWords[index].word,
                     rect: rect,
                     fontSize: helperFontSize,
-                    depth: 0.0,
+                    depth: plannedDepth(
+                        forPlacementAt: index + 1,
+                        totalPlacements: words.count,
+                        depthMode: depthMode
+                    ),
                     opacity: helperOpacity
                 )
             )
@@ -289,6 +299,26 @@ public struct WordLayoutPlanner: LayoutPlanner {
 
     private func fontSize(base: Double, minimum: Double, scale: Double) -> Double {
         max(minimum * scale, base * scale)
+    }
+
+    private func plannedDepth(
+        forPlacementAt index: Int,
+        totalPlacements: Int,
+        depthMode: LayoutDepthMode
+    ) -> Double {
+        switch depthMode {
+        case .flat:
+            return 0
+        case .depthAware:
+            guard totalPlacements > 1 else { return 0.65 }
+
+            let progress = Double(index) / Double(totalPlacements - 1)
+            return max(0.08, 0.72 - progress * 0.56)
+        case .foregroundAware:
+            return index == 0 ? 0.42 : 0.24
+        case .foregroundOnly:
+            return 0.32
+        }
     }
 
     private func anchoredX(

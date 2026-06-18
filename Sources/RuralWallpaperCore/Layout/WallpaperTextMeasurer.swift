@@ -18,6 +18,7 @@ enum WallpaperTextMeasurer {
         let metrics = makeMetrics(
             word: word,
             fontSize: fontSize,
+            depth: 0,
             opacity: opacity
         )
 
@@ -37,6 +38,7 @@ enum WallpaperTextMeasurer {
         let metrics = makeMetrics(
             word: word,
             fontSize: fontSize,
+            depth: 0,
             opacity: opacity
         )
 
@@ -54,9 +56,17 @@ enum WallpaperTextMeasurer {
     }
 
     static func textRun(for placement: LayoutWordPlacement) -> WallpaperTextRun {
+        textRun(for: placement, depthMode: .depthAware)
+    }
+
+    static func textRun(
+        for placement: LayoutWordPlacement,
+        depthMode: LayoutDepthMode
+    ) -> WallpaperTextRun {
         let metrics = makeMetrics(
             word: placement.word,
             fontSize: placement.fontSize,
+            depth: effectiveDepth(for: placement, depthMode: depthMode),
             opacity: placement.opacity
         )
         let drawPoint = CGPoint(
@@ -87,15 +97,17 @@ enum WallpaperTextMeasurer {
     private static func makeMetrics(
         word: String,
         fontSize: Double,
+        depth: Double,
         opacity: Double
     ) -> WallpaperTextMetrics {
         let fontSize = CGFloat(max(fontSize, 1))
+        let depth = CGFloat(clamp(depth, to: 0...1))
         let opacity = CGFloat(clamp(opacity, to: 0...1))
         let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.32 * opacity)
-        shadow.shadowBlurRadius = max(2, fontSize * 0.07)
-        shadow.shadowOffset = CGSize(width: 0, height: 2)
+        shadow.shadowColor = NSColor.black.withAlphaComponent((0.32 + depth * 0.18) * opacity)
+        shadow.shadowBlurRadius = max(2, fontSize * (0.07 + depth * 0.04))
+        shadow.shadowOffset = CGSize(width: 0, height: 2 + depth * 3)
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -106,7 +118,14 @@ enum WallpaperTextMeasurer {
             string: word,
             attributes: attributes
         )
-        let measuredBounds = attributedWord.boundingRect(
+        let measurementWord = NSAttributedString(
+            string: word,
+            attributes: [
+                .font: font,
+                .foregroundColor: NSColor(white: 0.98, alpha: opacity)
+            ]
+        )
+        let measuredBounds = measurementWord.boundingRect(
             with: CGSize(
                 width: CGFloat.greatestFiniteMagnitude,
                 height: CGFloat.greatestFiniteMagnitude
@@ -126,6 +145,18 @@ enum WallpaperTextMeasurer {
         to range: ClosedRange<Double>
     ) -> Double {
         min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    private static func effectiveDepth(
+        for placement: LayoutWordPlacement,
+        depthMode: LayoutDepthMode
+    ) -> Double {
+        switch depthMode {
+        case .flat:
+            return 0
+        case .depthAware, .foregroundAware, .foregroundOnly:
+            return placement.depth
+        }
     }
 }
 

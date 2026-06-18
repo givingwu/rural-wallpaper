@@ -28,7 +28,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         context.fill(canvas)
         drawScaleToFill(image: backgroundImage, in: canvas, context: context)
-        try drawWords(plan.wordPlacements, in: canvas, context: context)
+        try drawWords(plan, in: canvas, context: context)
 
         guard let renderedImage = context.makeImage() else {
             throw RenderError.pngEncodingFailed
@@ -106,14 +106,14 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
     }
 
     private func drawWords(
-        _ placements: [LayoutWordPlacement],
+        _ plan: LayoutPlan,
         in canvas: CGRect,
         context: CGContext
     ) throws {
-        guard !placements.isEmpty else { return }
+        guard !plan.wordPlacements.isEmpty else { return }
 
-        let textRuns = try placements.map {
-            try makeTextRun(for: $0, canvas: canvas)
+        let textRuns = try plan.wordPlacements.map {
+            try makeTextRun(for: $0, depthMode: plan.depthMode, canvas: canvas)
         }
 
         NSGraphicsContext.saveGraphicsState()
@@ -129,9 +129,13 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
 
     private func makeTextRun(
         for placement: LayoutWordPlacement,
+        depthMode: LayoutDepthMode,
         canvas: CGRect
     ) throws -> WallpaperTextRun {
-        let textRun = WallpaperTextMeasurer.textRun(for: placement)
+        let textRun = WallpaperTextMeasurer.textRun(
+            for: placement,
+            depthMode: depthMode
+        )
         let placementRect = WallpaperTextMeasurer.cgRect(from: placement.rect)
 
         guard placementRect.contains(
