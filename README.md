@@ -49,4 +49,4 @@ Scheduler / Manual Trigger
 
 ## 当前状态
 
-项目已进入 Swift Package 业务代码实现阶段。当前核心模块包含配置存储、Provider Harness、渲染与布局基础能力，以及 DisplayCoordinator 多显示器调度：可按 `AppSettings.enabledDisplayIDs` 过滤当前显示器，为每块启用显示器并发运行壁纸生成，并在屏幕变化时取消已消失显示器的任务。
+项目已进入 Swift Package 业务代码实现阶段。当前核心模块包含配置存储、Provider Harness、渲染与布局基础能力、DisplayCoordinator 多显示器调度，以及 FileHistoryStore 历史记录持久化：可按 `AppSettings.enabledDisplayIDs` 过滤当前显示器，为每块启用显示器并发运行壁纸生成，并在屏幕变化时取消已消失显示器的任务；生成结果按显示器读取最近记录，每屏默认保留 30 条，写入前会阻止明显的 API Key / Bearer Token 泄漏。
