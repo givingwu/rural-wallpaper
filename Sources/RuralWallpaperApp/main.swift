@@ -1,4 +1,8 @@
 import AppKit
 
-print("RuralWallpaperApp developer runner")
-NSApplication.shared.terminate(nil)
+let app = NSApplication.shared
+let delegate = AppDelegate()
+
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()
