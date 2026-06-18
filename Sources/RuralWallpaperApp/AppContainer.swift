@@ -16,6 +16,20 @@ struct ProviderSettingsDraft: Equatable {
     )
 }
 
+enum ProviderMode: String {
+    case mockPreview
+    case realProvider
+
+    var title: String {
+        switch self {
+        case .mockPreview:
+            "Mock Preview"
+        case .realProvider:
+            "Real Provider"
+        }
+    }
+}
+
 enum AppContainerError: Error, LocalizedError {
     case invalidBaseURL
     case invalidHeaderLine(String)
@@ -50,6 +64,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var providerSettings: ProviderSettingsDraft
     @Published private(set) var displays: [DisplayTarget]
     @Published private(set) var lastGeneratedWallpaperURLs: [URL] = []
+    @Published private(set) var providerMode: ProviderMode = .mockPreview
     @Published var lastErrorMessage: String?
 
     private let settingsStore: any SettingsStore
@@ -100,33 +115,33 @@ final class AppContainer: ObservableObject {
 
     func saveProviderSettings(_ draft: ProviderSettingsDraft) {
         do {
-            _ = try makeProviderConfig(from: draft)
-            userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
-            userDefaults.set(draft.model, forKey: ProviderDefaults.model)
-            userDefaults.set(draft.additionalHeaders, forKey: ProviderDefaults.additionalHeaders)
-
-            // API Key 写入 Keychain，不进入 UserDefaults 或 JSON 配置。
-            if draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try secretStore.delete(Self.providerSecretRef)
-            } else {
-                try secretStore.write(draft.apiKey, for: Self.providerSecretRef)
-            }
-
+            let previousSettings = providerSettings
+            _ = try persistProviderSettings(draft)
             providerSettings = draft
+            if draft != previousSettings {
+                providerMode = .mockPreview
+            }
             lastErrorMessage = nil
         } catch {
             lastErrorMessage = Self.describe(error)
         }
     }
 
-    func validateProviderSettings(_ draft: ProviderSettingsDraft) {
+    func testProviderConnection(_ draft: ProviderSettingsDraft) async {
         do {
-            _ = try makeProviderConfig(from: draft)
             if draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw AppContainerError.missingAPIKey
             }
-            lastErrorMessage = "Provider settings are valid."
+
+            let config = try persistProviderSettings(draft)
+            providerSettings = draft
+
+            let provider = OpenAICompatibleProvider(config: config, secretStore: secretStore)
+            let result = try await provider.testConnection()
+            providerMode = .realProvider
+            lastErrorMessage = "Connected \(result.model)."
         } catch {
+            providerMode = .mockPreview
             lastErrorMessage = Self.describe(error)
         }
     }
@@ -147,7 +162,7 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    func runMockWallpaperFlow() async throws -> [WallpaperHarnessResult] {
+    func runWallpaperFlow() async throws -> [WallpaperHarnessResult] {
         let currentDisplays = displayProvider.currentDisplays()
         displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
 
@@ -158,13 +173,13 @@ final class AppContainer: ObservableObject {
 
         let outputDirectory = Self.applicationSupportDirectory()
             .appendingPathComponent("Generated", isDirectory: true)
-        let desktopSetter = LoggingDesktopWallpaperSetter()
+        let dependencies = try makeGenerationDependencies()
         let harness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(),
-            aiProvider: MockPreviewProvider(),
+            sourceProvider: dependencies.sourceProvider,
+            aiProvider: dependencies.aiProvider,
             layoutPlanner: WordLayoutPlanner(),
             renderEngine: CoreGraphicsRenderEngine(),
-            desktopSetter: desktopSetter,
+            desktopSetter: dependencies.desktopSetter,
             historyStore: historyStore,
             outputDirectory: outputDirectory,
             settings: settings
@@ -186,9 +201,33 @@ final class AppContainer: ObservableObject {
 
         let harnessResults = results.compactMap(\.harnessResult)
         lastGeneratedWallpaperURLs = harnessResults.compactMap(\.record.finalImageURL)
-        lastErrorMessage = "Generated \(harnessResults.count) wallpaper(s)."
+        lastErrorMessage = "Generated \(harnessResults.count) wallpaper(s) with \(providerMode.title)."
 
         return harnessResults
+    }
+
+    private func makeGenerationDependencies() throws -> GenerationDependencies {
+        switch providerMode {
+        case .mockPreview:
+            return GenerationDependencies(
+                sourceProvider: MockSourceProvider(),
+                aiProvider: MockPreviewProvider(),
+                desktopSetter: LoggingDesktopWallpaperSetter()
+            )
+        case .realProvider:
+            let config = try makeProviderConfig(from: providerSettings)
+            let provider = OpenAICompatibleProvider(config: config, secretStore: secretStore)
+
+            return GenerationDependencies(
+                sourceProvider: AIImageSource(
+                    provider: provider,
+                    providerID: config.id,
+                    model: config.model
+                ),
+                aiProvider: provider,
+                desktopSetter: NSWorkspaceDesktopWallpaperSetter()
+            )
+        }
     }
 
     private func makeProviderConfig(from draft: ProviderSettingsDraft) throws -> ProviderConfig {
@@ -205,6 +244,22 @@ final class AppContainer: ObservableObject {
             additionalHeaders: try Self.parseHeaders(draft.additionalHeaders),
             capabilities: [.vision, .imageGeneration, .structuredOutput]
         )
+    }
+
+    private func persistProviderSettings(_ draft: ProviderSettingsDraft) throws -> ProviderConfig {
+        let config = try makeProviderConfig(from: draft)
+        userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
+        userDefaults.set(draft.model, forKey: ProviderDefaults.model)
+        userDefaults.set(draft.additionalHeaders, forKey: ProviderDefaults.additionalHeaders)
+
+        // API Key 写入 Keychain，不进入 UserDefaults 或 JSON 配置。
+        if draft.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try secretStore.delete(Self.providerSecretRef)
+        } else {
+            try secretStore.write(draft.apiKey, for: Self.providerSecretRef)
+        }
+
+        return config
     }
 
     private static func loadProviderSettings(
@@ -295,6 +350,12 @@ private enum ProviderDefaults {
     static let baseURL = "RuralWallpaper.Provider.BaseURL"
     static let model = "RuralWallpaper.Provider.Model"
     static let additionalHeaders = "RuralWallpaper.Provider.AdditionalHeaders"
+}
+
+private struct GenerationDependencies {
+    var sourceProvider: any SourceProvider
+    var aiProvider: any AIProvider
+    var desktopSetter: any DesktopWallpaperSetter
 }
 
 private struct StaticDisplayProvider: DisplayProvider {

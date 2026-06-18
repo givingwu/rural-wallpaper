@@ -19,7 +19,11 @@ struct SettingsView: View {
                     draft: $provider,
                     message: container.lastErrorMessage,
                     onSave: { container.saveProviderSettings(provider) },
-                    onTest: { container.validateProviderSettings(provider) }
+                    onTest: {
+                        Task {
+                            await container.testProviderConnection(provider)
+                        }
+                    }
                 )
                 .tabItem {
                     Label("Provider", systemImage: "network")

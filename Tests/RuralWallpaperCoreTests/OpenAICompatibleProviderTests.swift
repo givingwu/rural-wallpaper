@@ -4,6 +4,44 @@ import XCTest
 @testable import RuralWallpaperCore
 
 final class OpenAICompatibleProviderTests: XCTestCase {
+    func testConnectionSendsMinimalChatProbeWithoutLeakingSecretInBody() async throws {
+        let secretStore = MockSecretStore([
+            (SecretRef(service: "RuralWallpaperTests", account: "probe"), "probe-secret")
+        ])
+        let httpClient = MockHTTPClient(responses: [
+            HTTPResponse(
+                statusCode: 200,
+                data: try chatCompletionJSON(content: #"{"ok":true}"#)
+            )
+        ])
+        let provider = OpenAICompatibleProvider(
+            config: try makeProviderConfig(
+                baseURL: URL(string: "https://api.example.com/v1/")!,
+                model: "vision-model",
+                secretAccount: "probe",
+                capabilities: [.vision, .imageGeneration, .structuredOutput]
+            ),
+            secretStore: secretStore,
+            httpClient: httpClient
+        )
+
+        let result = try await provider.testConnection()
+        let request = try XCTUnwrap(httpClient.requests.first)
+        let body = try XCTUnwrap(request.body)
+        let bodyString = try XCTUnwrap(String(data: body, encoding: .utf8))
+        let object = try decodedJSONObject(from: request)
+
+        XCTAssertEqual(result.providerID, "test-provider")
+        XCTAssertEqual(result.model, "vision-model")
+        XCTAssertEqual(result.capabilities, [.vision, .imageGeneration, .structuredOutput])
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.url.absoluteString, "https://api.example.com/v1/chat/completions")
+        XCTAssertEqual(request.headers["Authorization"], "Bearer probe-secret")
+        XCTAssertEqual(object["model"] as? String, "vision-model")
+        XCTAssertFalse(bodyString.contains("probe-secret"))
+        XCTAssertFalse(bodyString.localizedCaseInsensitiveContains("Bearer "))
+    }
+
     func testGenerateImageBuildsAuthorizedRequestFromSecretAndSafeHeaders() async throws {
         let secretStore = MockSecretStore([
             (SecretRef(service: "RuralWallpaperTests", account: "image"), "secret-from-store")

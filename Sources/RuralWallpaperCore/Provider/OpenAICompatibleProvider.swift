@@ -12,6 +12,18 @@ public protocol AIProvider: Sendable {
     ) async throws -> EvaluationResult
 }
 
+public struct ProviderConnectionResult: Equatable, Sendable {
+    public var providerID: String
+    public var model: String
+    public var capabilities: ProviderCapability
+
+    public init(providerID: String, model: String, capabilities: ProviderCapability) {
+        self.providerID = providerID
+        self.model = model
+        self.capabilities = capabilities
+    }
+}
+
 public enum ProviderError: Error, Equatable, Sendable {
     case missingCapability(ProviderCapability)
     case missingSecret(SecretRef)
@@ -138,6 +150,31 @@ public struct OpenAICompatibleProvider: AIProvider {
         }
 
         throw ProviderError.invalidResponse
+    }
+
+    public func testConnection() async throws -> ProviderConnectionResult {
+        let request = ChatCompletionRequest(
+            model: config.model,
+            messages: [
+                ChatMessage(
+                    role: "user",
+                    content: [
+                        .text("Return JSON only: {\"ok\":true}")
+                    ]
+                )
+            ],
+            responseFormat: config.capabilities.contains(.structuredOutput)
+                ? ChatResponseFormat(type: "json_object")
+                : nil
+        )
+
+        _ = try await sendJSON(request, endpoint: "/chat/completions")
+
+        return ProviderConnectionResult(
+            providerID: config.id,
+            model: config.model,
+            capabilities: config.capabilities
+        )
     }
 
     private func requireCapability(_ capability: ProviderCapability) throws {

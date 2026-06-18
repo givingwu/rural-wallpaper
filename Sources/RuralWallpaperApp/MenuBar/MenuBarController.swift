@@ -81,7 +81,7 @@ final class MenuBarController: NSObject {
         rebuildMenu()
         Task { @MainActor in
             do {
-                _ = try await container.runMockWallpaperFlow()
+                _ = try await container.runWallpaperFlow()
                 state.finishSuccessfully()
             } catch {
                 let message = AppContainer.describe(error)
