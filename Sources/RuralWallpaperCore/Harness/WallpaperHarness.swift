@@ -289,6 +289,11 @@ public struct WallpaperHarness: Sendable {
             return urlError.code == .cancelled
         }
 
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return nsError.code == NSURLErrorCancelled
+        }
+
         return false
     }
 

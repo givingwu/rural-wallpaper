@@ -18,14 +18,16 @@ public struct NSWorkspaceDesktopWallpaperSetter: DesktopWallpaperSetter {
     public init() {}
 
     public func setWallpaper(fileURL: URL, for display: DisplayTarget) throws {
-        guard let screen = Self.screen(matching: display) else {
-            throw DesktopWallpaperError.displayNotFound(
-                displayID: display.id,
-                friendlyName: display.friendlyName
-            )
-        }
+        try DisplayMainThread.sync {
+            guard let screen = Self.screen(matching: display) else {
+                throw DesktopWallpaperError.displayNotFound(
+                    displayID: display.id,
+                    friendlyName: display.friendlyName
+                )
+            }
 
-        try NSWorkspace.shared.setDesktopImageURL(fileURL, for: screen, options: [:])
+            try NSWorkspace.shared.setDesktopImageURL(fileURL, for: screen, options: [:])
+        }
     }
 
     private static func screen(matching display: DisplayTarget) -> NSScreen? {

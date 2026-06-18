@@ -37,9 +37,25 @@ public struct DisplayRunResult: Equatable, Sendable {
 
 public actor DisplayCoordinator {
     private struct ActiveRun: Sendable {
-        var display: DisplayTarget
         var token: UUID
+        var signature: DisplaySignature
         var task: Task<DisplayRunResult, Never>
+    }
+
+    private struct DisplaySignature: Equatable, Sendable {
+        var frame: CoreRect
+        var pixelSize: PixelSize
+        var scale: Double
+        var colorSpace: String
+        var isMain: Bool
+
+        init(display: DisplayTarget) {
+            self.frame = display.frame
+            self.pixelSize = display.pixelSize
+            self.scale = display.scale
+            self.colorSpace = display.colorSpace
+            self.isMain = display.isMain
+        }
     }
 
     private let displayProvider: any DisplayProvider
@@ -85,7 +101,9 @@ public actor DisplayCoordinator {
         results.reserveCapacity(runs.count)
 
         for run in runs {
-            results.append(await run.task.value)
+            let result = await run.task.value
+            clearActiveRun(displayID: result.display.id, token: run.token)
+            results.append(result)
         }
 
         return results
@@ -120,8 +138,10 @@ public actor DisplayCoordinator {
     }
 
     private func activeRun(for display: DisplayTarget) -> ActiveRun {
+        let signature = DisplaySignature(display: display)
+
         if let activeRun = activeRuns[display.id] {
-            guard activeRun.display != display else {
+            guard activeRun.signature != signature else {
                 return activeRun
             }
 
@@ -131,7 +151,7 @@ public actor DisplayCoordinator {
 
         let token = UUID()
         let task = makeTask(for: display)
-        let activeRun = ActiveRun(display: display, token: token, task: task)
+        let activeRun = ActiveRun(token: token, signature: signature, task: task)
         activeRuns[display.id] = activeRun
 
         Task {
