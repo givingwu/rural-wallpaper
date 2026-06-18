@@ -11,10 +11,10 @@ Rural Wallpaper 使用 OpenAI-compatible Provider。设置入口在菜单栏 `Se
 
 ## Test Connection
 
-`Test Connection` 会读取 Keychain 中的 API Key，向 `/chat/completions` 发送一个最小 JSON 探测请求：
+`Test Connection` 会使用当前表单里的 API Key 临时向 `/chat/completions` 发送一个最小 JSON 探测请求：
 
-- 成功：设置页显示连接成功，并把生成模式切到真实 Provider。
-- 失败：设置页显示错误摘要，并继续使用本地 mock preview flow。
+- 成功：API Key 写入 Keychain，非敏感配置写入 `UserDefaults`，设置页显示连接成功，并把生成模式切到真实 Provider。
+- 失败：设置页显示错误摘要，不保存这次表单配置，并继续使用本地 mock preview flow。
 
 ## 能力要求
 

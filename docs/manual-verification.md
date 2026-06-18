@@ -16,11 +16,10 @@ Mock flow 使用 logging desktop setter，不直接替换桌面。
 1. 打开 `Settings -> Provider`。
 2. 填入 `Base URL`、`Model`、`API Key`。
 3. 点击 `Test Connection`。
-4. 看到连接成功后点击 `Save`。
-5. 点击菜单栏 `Generate Now`。
-6. 确认桌面壁纸被替换，`History` 出现成功记录。
+4. 看到连接成功后点击菜单栏 `Generate Now`。
+5. 确认桌面壁纸被替换，`History` 出现成功记录。
 
-若 Provider 返回失败，菜单栏状态应显示失败摘要，`History` 应保留失败记录。
+若 `Test Connection` 失败，设置页应显示错误摘要，并且不保存这次表单配置。若生成阶段 Provider 返回失败，菜单栏状态应显示失败摘要，`History` 应保留失败记录。
 
 ## Multi Display
 
