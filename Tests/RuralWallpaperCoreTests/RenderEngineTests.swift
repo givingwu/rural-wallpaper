@@ -54,6 +54,64 @@ final class RenderEngineTests: XCTestCase {
         )
     }
 
+    func testRenderedWordPixelsStayInsidePlacementRectWithTolerance() throws {
+        let display = makeDisplay(width: 420, height: 240)
+        let placement = LayoutWordPlacement(
+            word: "MEADOW",
+            rect: CoreRect(x: 18, y: 28, width: 300, height: 86),
+            baseline: CorePoint(x: 18, y: 92),
+            fontSize: 54,
+            depth: 0,
+            opacity: 0.98
+        )
+        let plan = makePlan(display: display, placements: [placement])
+        let background = try makeSolidPNG(width: 420, height: 240, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+
+        let rendered = try engine.render(
+            background: background,
+            plan: plan,
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+        let brightBounds = try XCTUnwrap(brightPixelBounds(in: output))
+
+        assertPixelBounds(
+            brightBounds,
+            isInside: placement.rect,
+            tolerance: 4
+        )
+    }
+
+    func testTooSmallTextRectThrowsInvalidLayout() throws {
+        let display = makeDisplay(width: 420, height: 240)
+        let plan = makePlan(
+            display: display,
+            placements: [
+                LayoutWordPlacement(
+                    word: "MEADOW",
+                    rect: CoreRect(x: 18, y: 28, width: 80, height: 24),
+                    baseline: CorePoint(x: 18, y: 92),
+                    fontSize: 54,
+                    depth: 0,
+                    opacity: 0.98
+                )
+            ]
+        )
+        let background = try makeSolidPNG(width: 420, height: 240, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+
+        XCTAssertThrowsError(
+            try engine.render(
+                background: background,
+                plan: plan,
+                display: display
+            )
+        ) { error in
+            XCTAssertEqual(error as? RenderError, .invalidLayout)
+        }
+    }
+
     func testLayoutPlanTextRectsAreInsideCanvasBounds() {
         let display = makeDisplay(width: 400, height: 260)
         let plan = makePlan(
@@ -115,6 +173,29 @@ final class RenderEngineTests: XCTestCase {
         assertMostlyGreen(output, x: 191, y: 191)
     }
 
+    func testTallBackgroundSizeMismatchUsesScaleToFillCrop() throws {
+        let display = makeDisplay(width: 200, height: 200)
+        let plan = makePlan(display: display, placements: [])
+        let background = try makeVerticalStripPNG(
+            width: 200,
+            height: 400,
+            lowerHeight: 100,
+            upperHeight: 100
+        )
+        let engine = CoreGraphicsRenderEngine()
+
+        let rendered = try engine.render(
+            background: background,
+            plan: plan,
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+
+        assertMostlyGreen(output, x: 8, y: 8)
+        assertMostlyGreen(output, x: 100, y: 100)
+        assertMostlyGreen(output, x: 191, y: 191)
+    }
+
     func testInvalidBackgroundImageThrowsClearRenderError() {
         let display = makeDisplay(width: 100, height: 100)
         let engine = CoreGraphicsRenderEngine()
@@ -127,6 +208,21 @@ final class RenderEngineTests: XCTestCase {
             )
         ) { error in
             XCTAssertEqual(error as? RenderError, .invalidBackgroundImage)
+        }
+    }
+
+    func testInvalidDisplaySizeThrowsBeforeDecodingBackground() {
+        let display = makeDisplay(width: 0, height: 100)
+        let engine = CoreGraphicsRenderEngine()
+
+        XCTAssertThrowsError(
+            try engine.render(
+                background: Data("not an image".utf8),
+                plan: makePlan(display: display),
+                display: display
+            )
+        ) { error in
+            XCTAssertEqual(error as? RenderError, .invalidDisplaySize)
         }
     }
 
@@ -147,8 +243,8 @@ final class RenderEngineTests: XCTestCase {
         placements: [LayoutWordPlacement] = [
             LayoutWordPlacement(
                 word: "meadow",
-                rect: CoreRect(x: 36, y: 42, width: 180, height: 64),
-                baseline: CorePoint(x: 36, y: 92),
+                rect: CoreRect(x: 36, y: 42, width: 230, height: 76),
+                baseline: CorePoint(x: 36, y: 98),
                 fontSize: 48,
                 depth: 0,
                 opacity: 0.95
@@ -167,6 +263,25 @@ final class RenderEngineTests: XCTestCase {
         let image = try makeImage(width: width, height: height) { context in
             context.setFillColor(color.cgColor)
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        }
+
+        return try pngData(from: image)
+    }
+
+    private func makeVerticalStripPNG(
+        width: Int,
+        height: Int,
+        lowerHeight: Int,
+        upperHeight: Int
+    ) throws -> Data {
+        let centerHeight = height - lowerHeight - upperHeight
+        let image = try makeImage(width: width, height: height) { context in
+            context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: lowerHeight))
+            context.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: lowerHeight, width: width, height: centerHeight))
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: height - upperHeight, width: width, height: upperHeight))
         }
 
         return try pngData(from: image)
@@ -242,6 +357,64 @@ final class RenderEngineTests: XCTestCase {
         return false
     }
 
+    private func brightPixelBounds(in image: NSBitmapImageRep) -> PixelBounds? {
+        var bounds: PixelBounds?
+
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    continue
+                }
+
+                guard color.redComponent > 0.82,
+                      color.greenComponent > 0.82,
+                      color.blueComponent > 0.82,
+                      color.alphaComponent > 0.7 else {
+                    continue
+                }
+
+                let canvasY = image.pixelsHigh - 1 - y
+                bounds = bounds?.expanded(toIncludeX: x, y: canvasY)
+                    ?? PixelBounds(minX: x, minY: canvasY, maxX: x, maxY: canvasY)
+            }
+        }
+
+        return bounds
+    }
+
+    private func assertPixelBounds(
+        _ bounds: PixelBounds,
+        isInside rect: CoreRect,
+        tolerance: Double,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertGreaterThanOrEqual(
+            Double(bounds.minX),
+            rect.minX - tolerance,
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThanOrEqual(
+            Double(bounds.minY),
+            rect.minY - tolerance,
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            Double(bounds.maxX),
+            rect.maxX + tolerance,
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            Double(bounds.maxY),
+            rect.maxY + tolerance,
+            file: file,
+            line: line
+        )
+    }
+
     private func assertMostlyGreen(
         _ image: NSBitmapImageRep,
         x: Int,
@@ -257,6 +430,22 @@ final class RenderEngineTests: XCTestCase {
         XCTAssertLessThan(color.redComponent, 0.08, file: file, line: line)
         XCTAssertGreaterThan(color.greenComponent, 0.90, file: file, line: line)
         XCTAssertLessThan(color.blueComponent, 0.08, file: file, line: line)
+    }
+}
+
+private struct PixelBounds {
+    var minX: Int
+    var minY: Int
+    var maxX: Int
+    var maxY: Int
+
+    func expanded(toIncludeX x: Int, y: Int) -> PixelBounds {
+        PixelBounds(
+            minX: min(minX, x),
+            minY: min(minY, y),
+            maxX: max(maxX, x),
+            maxY: max(maxY, y)
+        )
     }
 }
 

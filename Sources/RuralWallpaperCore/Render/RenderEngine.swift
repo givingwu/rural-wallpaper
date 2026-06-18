@@ -30,6 +30,7 @@ public struct RenderedWallpaper: Equatable, Sendable {
 public enum RenderError: Error, Equatable, LocalizedError, Sendable {
     case invalidBackgroundImage
     case invalidDisplaySize
+    case invalidLayout
     case pngEncodingFailed
 
     public var errorDescription: String? {
@@ -38,6 +39,8 @@ public enum RenderError: Error, Equatable, LocalizedError, Sendable {
             return "Background image data could not be decoded."
         case .invalidDisplaySize:
             return "Display target pixel size must be greater than zero."
+        case .invalidLayout:
+            return "Layout text bounds exceed the placement rect or display canvas."
         case .pngEncodingFailed:
             return "Rendered wallpaper could not be encoded as PNG."
         }

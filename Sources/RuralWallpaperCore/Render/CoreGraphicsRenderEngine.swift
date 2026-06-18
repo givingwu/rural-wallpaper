@@ -3,6 +3,8 @@ import Foundation
 import ImageIO
 
 public struct CoreGraphicsRenderEngine: RenderEngine {
+    private let textBoundsTolerance: CGFloat = 4
+
     public init() {}
 
     public func render(
@@ -10,7 +12,6 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         plan: LayoutPlan,
         display: DisplayTarget
     ) throws -> RenderedWallpaper {
-        let backgroundImage = try decodeImage(from: background)
         let canvasWidth = display.pixelSize.width
         let canvasHeight = display.pixelSize.height
 
@@ -18,13 +19,14 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
             throw RenderError.invalidDisplaySize
         }
 
+        let backgroundImage = try decodeImage(from: background)
         let context = try makeBitmapContext(width: canvasWidth, height: canvasHeight)
         let canvas = CGRect(x: 0, y: 0, width: canvasWidth, height: canvasHeight)
 
         context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
         context.fill(canvas)
         drawScaleToFill(image: backgroundImage, in: canvas, context: context)
-        drawWords(plan.wordPlacements, context: context)
+        try drawWords(plan.wordPlacements, in: canvas, context: context)
 
         guard let renderedImage = context.makeImage() else {
             throw RenderError.pngEncodingFailed
@@ -103,9 +105,14 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
 
     private func drawWords(
         _ placements: [LayoutWordPlacement],
+        in canvas: CGRect,
         context: CGContext
-    ) {
+    ) throws {
         guard !placements.isEmpty else { return }
+
+        let textRuns = try placements.map {
+            try makeTextRun(for: $0, canvas: canvas)
+        }
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
@@ -113,12 +120,15 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
             NSGraphicsContext.restoreGraphicsState()
         }
 
-        for placement in placements {
-            drawWord(placement)
+        for textRun in textRuns {
+            textRun.attributedWord.draw(at: textRun.drawPoint)
         }
     }
 
-    private func drawWord(_ placement: LayoutWordPlacement) {
+    private func makeTextRun(
+        for placement: LayoutWordPlacement,
+        canvas: CGRect
+    ) throws -> TextRun {
         let fontSize = CGFloat(max(placement.fontSize, 1))
         let opacity = CGFloat(placement.opacity.clamped(to: 0...1))
         let font = NSFont.systemFont(ofSize: fontSize, weight: .bold)
@@ -140,13 +150,58 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
             x: placement.baseline.x,
             y: placement.baseline.y - Double(font.ascender)
         )
+        let measuredBounds = attributedWord.boundingRect(
+            with: CGSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let textBounds = measuredBounds.offsetBy(
+            dx: drawPoint.x,
+            dy: drawPoint.y
+        ).standardized
+        let placementRect = placement.rect.cgRect
 
-        attributedWord.draw(at: drawPoint)
+        guard placementRect.contains(textBounds, tolerance: textBoundsTolerance),
+              canvas.contains(textBounds, tolerance: textBoundsTolerance) else {
+            throw RenderError.invalidLayout
+        }
+
+        return TextRun(
+            attributedWord: attributedWord,
+            drawPoint: drawPoint
+        )
     }
+}
+
+private struct TextRun {
+    var attributedWord: NSAttributedString
+    var drawPoint: CGPoint
 }
 
 private extension Double {
     func clamped(to range: ClosedRange<Double>) -> Double {
         min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
+private extension CoreRect {
+    var cgRect: CGRect {
+        CGRect(
+            x: origin.x,
+            y: origin.y,
+            width: size.width,
+            height: size.height
+        )
+    }
+}
+
+private extension CGRect {
+    func contains(_ rect: CGRect, tolerance: CGFloat) -> Bool {
+        rect.minX >= minX - tolerance
+            && rect.maxX <= maxX + tolerance
+            && rect.minY >= minY - tolerance
+            && rect.maxY <= maxY + tolerance
     }
 }
