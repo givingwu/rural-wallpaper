@@ -274,10 +274,22 @@ public struct OpenAICompatibleProvider: AIProvider {
 
     private func imageAnalysisPrompt(displayJSON: String) -> String {
         """
-        请分析这张壁纸图片，结合显示器信息判断画面主体、景深和适合放置英文单词的安全区域。显示器信息：
+        请分析这张壁纸图片，结合显示器信息判断画面主体、景深、亮度干扰和适合放置英文单词的区域。显示器信息：
         \(displayJSON)
+        所有矩形都必须使用显示器像素坐标，格式为 {"origin":{"x":0,"y":0},"size":{"width":100,"height":80}}。
+        返回字段说明：
+        - summary: 简短英文场景摘要。
+        - sceneHints: 画面语义标签。
+        - safeTextRegions: 适合放置文字的低遮挡像素矩形。
+        - subjectRects: 人、动物、房屋、车辆、主体树木等主要视觉主体像素矩形。
+        - lowDetailRects: 纹理简单、适合文字叠加的像素矩形，优先于 safeTextRegions。
+        - horizonLines: 地平线或明显水平分割线的 y 像素坐标数组。
+        - brightnessHotspots: 过亮、会影响文字可读性的像素矩形。
+        - maskConfidence: 0 到 1 的主体/前景遮罩可靠度。
+        - depthHints: 可用于景深判断的简短提示。
+        - notes: 其他简短说明。
         只返回 JSON，格式为：
-        {"analysis":{"summary":"...","sceneHints":["..."],"safeTextRegions":[],"depthHints":["..."],"notes":"..."}}
+        {"analysis":{"summary":"...","sceneHints":["..."],"safeTextRegions":[{"origin":{"x":0,"y":0},"size":{"width":100,"height":80}}],"subjectRects":[],"lowDetailRects":[],"horizonLines":[420],"brightnessHotspots":[],"maskConfidence":0.8,"depthHints":["..."],"notes":"..."}}
         """
     }
 

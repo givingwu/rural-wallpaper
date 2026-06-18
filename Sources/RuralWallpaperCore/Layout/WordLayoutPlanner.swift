@@ -121,12 +121,14 @@ public struct WordLayoutPlanner: LayoutPlanner {
 
             for anchor in LayoutAnchor.allCases {
                 for scale in [1.0, 0.9, 0.8, 0.7, 0.6] {
-                    let placements = makePlacements(
+                    guard let placements = makePlacements(
                         in: regionChoice.rect,
                         words: words,
                         anchor: anchor,
                         scale: scale
-                    )
+                    ) else {
+                        continue
+                    }
 
                     guard isValid(
                         placements: placements,
@@ -162,7 +164,7 @@ public struct WordLayoutPlanner: LayoutPlanner {
         words: [VocabularyItem],
         anchor: LayoutAnchor,
         scale: Double
-    ) -> [LayoutWordPlacement] {
+    ) -> [LayoutWordPlacement]? {
         let mainFontSize = fontSize(
             base: min(region.height * 0.28, 78),
             minimum: 38,
@@ -180,12 +182,16 @@ public struct WordLayoutPlanner: LayoutPlanner {
             anchor: anchor
         )
         let mainY = region.minY + region.height * 0.10
-        let mainRect = CoreRect(
+        let mainCandidateRect = CoreRect(
             x: mainX,
             y: mainY,
             width: mainTextSize.width,
             height: mainTextSize.height
-        ).clamped(to: region)
+        )
+        guard let mainRect = fittedRectPreservingSize(mainCandidateRect, inside: region) else {
+            return nil
+        }
+
         var placements = [
             makePlacement(
                 word: words[0].word,
@@ -204,10 +210,13 @@ public struct WordLayoutPlanner: LayoutPlanner {
         }
         let rowCount = Int((Double(helperWords.count) / 2.0).rounded(.up))
         let helperGapY = max(8, helperFontSize * 0.42)
+        let preferredHelperStartY = mainRect.maxY + max(12, helperFontSize * 0.45)
+        let helperRowsHeight = Double(rowCount) * helperTextSizes[0].height
+        let helperGapsHeight = Double(max(rowCount - 1, 0)) * helperGapY
+        let latestHelperStartY = region.maxY - helperRowsHeight - helperGapsHeight
         let helperStartY = min(
-            mainRect.maxY + max(12, helperFontSize * 0.45),
-            region.maxY - Double(rowCount) * helperTextSizes[0].height
-                - Double(max(rowCount - 1, 0)) * helperGapY
+            preferredHelperStartY,
+            latestHelperStartY
         )
 
         for index in helperWords.indices {
@@ -220,12 +229,15 @@ public struct WordLayoutPlanner: LayoutPlanner {
                 singleLastItem: isSingleLastItem
             )
             let centerX = region.minX + region.width * columnPosition
-            let rect = CoreRect(
+            let helperCandidateRect = CoreRect(
                 x: centerX - size.width / 2,
                 y: helperStartY + Double(row) * (size.height + helperGapY),
                 width: size.width,
                 height: size.height
-            ).clamped(to: region)
+            )
+            guard let rect = fittedRectPreservingSize(helperCandidateRect, inside: region) else {
+                return nil
+            }
 
             placements.append(
                 makePlacement(
@@ -239,6 +251,22 @@ public struct WordLayoutPlanner: LayoutPlanner {
         }
 
         return placements
+    }
+
+    private func fittedRectPreservingSize(_ rect: CoreRect, inside bounds: CoreRect) -> CoreRect? {
+        guard rect.width <= bounds.width, rect.height <= bounds.height else {
+            return nil
+        }
+
+        let fittedX = min(max(rect.minX, bounds.minX), bounds.maxX - rect.width)
+        let fittedY = min(max(rect.minY, bounds.minY), bounds.maxY - rect.height)
+
+        return CoreRect(
+            x: fittedX,
+            y: fittedY,
+            width: rect.width,
+            height: rect.height
+        )
     }
 
     private func helperColumnPosition(index: Int, singleLastItem: Bool) -> Double {

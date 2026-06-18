@@ -75,6 +75,52 @@ final class LayoutPlannerTests: XCTestCase {
         XCTAssertLessThanOrEqual(plans.count, 5)
     }
 
+    func testLongWordNarrowRegionPreservesEstimatedTextBounds() {
+        let display = makeDisplay(width: 900, height: 600)
+        let planner = WordLayoutPlanner()
+        let plans = planner.makeLayoutCandidates(
+            display: display,
+            analysis: ImageAnalysis(
+                summary: "A narrow quiet sky band.",
+                safeTextRegions: [
+                    CoreRect(x: 250, y: 180, width: 320, height: 260)
+                ],
+                maskConfidence: 0.9
+            ),
+            words: [
+                makeVocabularyItem(word: "countryside"),
+                makeVocabularyItem(word: "ridge"),
+                makeVocabularyItem(word: "dusk")
+            ],
+            maxCandidates: 3
+        )
+
+        XCTAssertFalse(plans.isEmpty)
+
+        for plan in plans {
+            assertPlacementsAreInsideDisplay(plan.wordPlacements, display: display)
+            assertWordRectsDoNotOverlap(plan.wordPlacements)
+
+            for placement in plan.wordPlacements {
+                let estimatedSize = estimatedTextSize(
+                    for: placement.word,
+                    fontSize: placement.fontSize
+                )
+
+                XCTAssertGreaterThanOrEqual(
+                    placement.rect.size.width,
+                    estimatedSize.width,
+                    "\(placement.word) rect width is smaller than estimated text width"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    placement.rect.size.height,
+                    estimatedSize.height,
+                    "\(placement.word) rect height is smaller than estimated text height"
+                )
+            }
+        }
+    }
+
     func testPlacementsAvoidSubjectRects() throws {
         let display = makeDisplay(width: 1440, height: 900)
         let analysis = ImageAnalysis(
@@ -174,6 +220,22 @@ final class LayoutPlannerTests: XCTestCase {
             isMain: true,
             friendlyName: "Built-in Display"
         )
+    }
+
+    private func makeVocabularyItem(word: String) -> VocabularyItem {
+        VocabularyItem(
+            word: word,
+            partOfSpeech: "noun",
+            zhDefinition: "测试词",
+            example: "The word appears in a calm rural scene.",
+            difficulty: 2,
+            sourceReason: "Layout test fixture."
+        )
+    }
+
+    private func estimatedTextSize(for word: String, fontSize: Double) -> CoreSize {
+        let width = max(fontSize * 1.5, Double(word.count) * fontSize * 0.58)
+        return CoreSize(width: width, height: fontSize * 1.18)
     }
 
     private func assertPlacementsAreInsideDisplay(

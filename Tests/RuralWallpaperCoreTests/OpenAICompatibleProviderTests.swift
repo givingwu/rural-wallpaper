@@ -216,6 +216,50 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         XCTAssertEqual(analysis.notes, "direct fallback")
     }
 
+    func testAnalyzeImagePromptRequestsAndDecodesCurrentImageAnalysisFields() async throws {
+        let secretStore = MockSecretStore([
+            (SecretRef(service: "RuralWallpaperTests", account: "vision"), "vision-secret")
+        ])
+        let httpClient = MockHTTPClient(responses: [
+            HTTPResponse(
+                statusCode: 200,
+                data: try chatCompletionJSON(content: currentImageAnalysisContentJSON())
+            )
+        ])
+        let provider = OpenAICompatibleProvider(
+            config: try makeProviderConfig(
+                model: "vision-model",
+                secretAccount: "vision",
+                capabilities: [.vision, .structuredOutput]
+            ),
+            secretStore: secretStore,
+            httpClient: httpClient
+        )
+
+        let analysis = try await provider.analyzeImage(
+            Data("image".utf8),
+            display: makeDisplayTarget()
+        )
+
+        XCTAssertEqual(analysis.summary, "Current field rural field")
+        XCTAssertEqual(analysis.safeTextRegions, [CoreRect(x: 300, y: 180, width: 1100, height: 360)])
+        XCTAssertEqual(analysis.subjectRects, [CoreRect(x: 1200, y: 520, width: 520, height: 640)])
+        XCTAssertEqual(analysis.lowDetailRects, [CoreRect(x: 260, y: 160, width: 960, height: 320)])
+        XCTAssertEqual(analysis.horizonLines, [740])
+        XCTAssertEqual(analysis.brightnessHotspots, [CoreRect(x: 40, y: 50, width: 260, height: 180)])
+        XCTAssertEqual(analysis.maskConfidence, 0.82)
+
+        let request = try XCTUnwrap(httpClient.requests.first)
+        let prompt = try textPrompt(from: request)
+
+        XCTAssertTrue(prompt.contains("subjectRects"))
+        XCTAssertTrue(prompt.contains("lowDetailRects"))
+        XCTAssertTrue(prompt.contains("horizonLines"))
+        XCTAssertTrue(prompt.contains("brightnessHotspots"))
+        XCTAssertTrue(prompt.contains("maskConfidence"))
+        XCTAssertTrue(prompt.contains("像素坐标"))
+    }
+
     func testEvaluateDecodesWrappedEvaluationResponse() async throws {
         let secretStore = MockSecretStore([
             (SecretRef(service: "RuralWallpaperTests", account: "vision"), "vision-secret")
@@ -349,6 +393,16 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
     }
 
+    private func textPrompt(from request: HTTPRequest) throws -> String {
+        let object = try decodedJSONObject(from: request)
+        let messages = try XCTUnwrap(object["messages"] as? [[String: Any]])
+        let firstMessage = try XCTUnwrap(messages.first)
+        let content = try XCTUnwrap(firstMessage["content"] as? [[String: Any]])
+        let textPart = try XCTUnwrap(content.first { $0["type"] as? String == "text" })
+
+        return try XCTUnwrap(textPart["text"] as? String)
+    }
+
     private func imageGenerationResponseJSON(
         base64Image: String,
         revisedPrompt: String
@@ -412,13 +466,59 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         )
     }
 
-    private func imageAnalysisObject(summary: String, notes: String) -> [String: Any] {
-        [
+    private func currentImageAnalysisContentJSON() throws -> String {
+        try jsonString([
+            "analysis": imageAnalysisObject(
+                summary: "Current field rural field",
+                notes: "current fields",
+                includeCurrentFields: true
+            )
+        ])
+    }
+
+    private func imageAnalysisObject(
+        summary: String,
+        notes: String,
+        includeCurrentFields: Bool = false
+    ) -> [String: Any] {
+        var object: [String: Any] = [
             "summary": summary,
             "sceneHints": ["field", "mist"],
             "safeTextRegions": [],
             "depthHints": ["soft background ridge"],
             "notes": notes
+        ]
+
+        if includeCurrentFields {
+            object["safeTextRegions"] = [
+                rectObject(x: 300, y: 180, width: 1100, height: 360)
+            ]
+            object["subjectRects"] = [
+                rectObject(x: 1200, y: 520, width: 520, height: 640)
+            ]
+            object["lowDetailRects"] = [
+                rectObject(x: 260, y: 160, width: 960, height: 320)
+            ]
+            object["horizonLines"] = [740]
+            object["brightnessHotspots"] = [
+                rectObject(x: 40, y: 50, width: 260, height: 180)
+            ]
+            object["maskConfidence"] = 0.82
+        }
+
+        return object
+    }
+
+    private func rectObject(x: Double, y: Double, width: Double, height: Double) -> [String: Any] {
+        [
+            "origin": [
+                "x": x,
+                "y": y
+            ],
+            "size": [
+                "width": width,
+                "height": height
+            ]
         ]
     }
 
