@@ -135,6 +135,36 @@ final class SourceProviderTests: XCTestCase {
         )
     }
 
+    func testUnsplashSourceRequiresDownloadLocationBeforeDownloadingImage() async throws {
+        let imageData = Data("unsplash-image".utf8)
+        let httpClient = MockSourceHTTPClient(responses: [
+            HTTPResponse(statusCode: 200, data: unsplashPhotoJSON(downloadLocation: nil)),
+            HTTPResponse(statusCode: 200, data: imageData)
+        ])
+        let source = UnsplashSource(
+            accessKey: "test-access-key",
+            httpClient: httpClient,
+            baseURL: URL(string: "https://api.unsplash.test")!
+        )
+
+        do {
+            _ = try await source.makeSourceImage(
+                for: makeDisplayTarget(),
+                settings: AppSettings.default
+            )
+            XCTFail("Expected missing Unsplash download location to throw")
+        } catch let error as ProviderError {
+            XCTAssertEqual(error, .invalidResponse)
+        }
+
+        XCTAssertEqual(httpClient.requests.count, 1)
+        XCTAssertFalse(
+            httpClient.requests.contains {
+                $0.url == URL(string: "https://images.unsplash.test/photo-123.jpg")!
+            }
+        )
+    }
+
     func testUnsplashSourceIsNotTheDefaultSource() {
         let aiSource = AIImageSource(
             provider: MockAIProvider(generatedImage: GeneratedSourceImage(data: Data(), prompt: "")),
@@ -166,16 +196,23 @@ final class SourceProviderTests: XCTestCase {
         )
     }
 
-    private func unsplashPhotoJSON() -> Data {
+    private func unsplashPhotoJSON(
+        downloadLocation: String? = "https://api.unsplash.test/photos/photo-123/download?ixid=test"
+    ) -> Data {
+        var links: [String: Any] = [
+            "html": "https://unsplash.test/photos/photo-123"
+        ]
+
+        if let downloadLocation {
+            links["download_location"] = downloadLocation
+        }
+
         let object: [String: Any] = [
             "id": "photo-123",
             "urls": [
                 "full": "https://images.unsplash.test/photo-123.jpg"
             ],
-            "links": [
-                "html": "https://unsplash.test/photos/photo-123",
-                "download_location": "https://api.unsplash.test/photos/photo-123/download?ixid=test"
-            ],
+            "links": links,
             "user": [
                 "name": "Jane Photographer",
                 "links": [

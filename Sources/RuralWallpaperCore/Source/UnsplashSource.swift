@@ -28,10 +28,10 @@ public struct UnsplashSource: SourceProvider {
         let photoResponse = try await send(request: randomPhotoRequest(settings: settings))
         let photo: UnsplashPhotoResponse = try decode(photoResponse.data)
 
-        let downloadLocation = photo.links.downloadLocation
-        if let downloadLocation {
-            _ = try await send(request: authorizedGET(downloadLocation))
+        guard let downloadLocation = photo.links.downloadLocation else {
+            throw ProviderError.invalidResponse
         }
+        _ = try await send(request: authorizedGET(downloadLocation))
 
         guard let imageURL = photo.urls.full else {
             throw ProviderError.invalidResponse
