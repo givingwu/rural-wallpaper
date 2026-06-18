@@ -160,7 +160,7 @@ enum WallpaperTextMeasurer {
         opacity: CGFloat
     ) -> CGRect {
         guard opacity > 0,
-              let shadowColor = shadow.shadowColor as? NSColor,
+              let shadowColor = shadow.shadowColor,
               shadowColor.alphaComponent > 0 else {
             return glyphBounds
         }
