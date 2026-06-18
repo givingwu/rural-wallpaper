@@ -80,8 +80,15 @@ final class MenuBarController: NSObject {
 
         rebuildMenu()
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            state.finishWithFailure("Generation flow is not connected yet.")
+            do {
+                _ = try await container.runMockWallpaperFlow()
+                state.finishSuccessfully()
+            } catch {
+                let message = AppContainer.describe(error)
+                container.lastErrorMessage = message
+                state.finishWithFailure(message)
+            }
+
             rebuildMenu()
         }
     }

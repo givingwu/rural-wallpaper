@@ -9,7 +9,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let plan = makePlan(display: display, score: 0.9)
         let evaluation = makeEvaluation(score: 0.96)
         let callLog = CallLog()
-        let sourceProvider = MockSourceProvider(
+        let sourceProvider = HarnessMockSourceProvider(
             images: [makeSourceImage(id: "background-1")],
             callLog: callLog
         )
@@ -60,7 +60,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let display = makeDisplay(id: "display-layout-retry")
         let firstPlan = makePlan(display: display, score: 0.4, word: "meadow")
         let secondPlan = makePlan(display: display, score: 0.9, word: "ridge")
-        let sourceProvider = MockSourceProvider(images: [makeSourceImage(id: "background-1")])
+        let sourceProvider = HarnessMockSourceProvider(images: [makeSourceImage(id: "background-1")])
         let aiProvider = MockAIProvider(
             words: [VocabularyItem.samples(count: 3)],
             analyses: [makeAnalysis()],
@@ -106,7 +106,7 @@ final class WallpaperHarnessTests: XCTestCase {
             maxBackgroundAttempts: 2,
             maxLayoutCandidates: 2
         )
-        let sourceProvider = MockSourceProvider(
+        let sourceProvider = HarnessMockSourceProvider(
             images: [
                 makeSourceImage(id: "background-1"),
                 makeSourceImage(id: "background-2")
@@ -167,7 +167,7 @@ final class WallpaperHarnessTests: XCTestCase {
             [makePlan(display: display, score: 0.3, word: "ridge")]
         ]
         let lastEvaluation = makeEvaluation(score: 0.3)
-        let sourceProvider = MockSourceProvider(
+        let sourceProvider = HarnessMockSourceProvider(
             images: [
                 makeSourceImage(id: "background-1"),
                 makeSourceImage(id: "background-2")
@@ -223,7 +223,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let succeedingSetter = MockDesktopWallpaperSetter()
         let succeedingHistory = MockHistoryStore()
         let failingHarness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "bad-background")]),
+            sourceProvider: HarnessMockSourceProvider(images: [makeSourceImage(id: "bad-background")]),
             aiProvider: MockAIProvider(
                 words: [VocabularyItem.samples(count: 3)],
                 analyses: [makeAnalysis()],
@@ -243,7 +243,7 @@ final class WallpaperHarnessTests: XCTestCase {
         )
         let succeedingPlan = makePlan(display: succeedingDisplay, score: 0.9)
         let succeedingHarness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "good-background")]),
+            sourceProvider: HarnessMockSourceProvider(images: [makeSourceImage(id: "good-background")]),
             aiProvider: MockAIProvider(
                 words: [VocabularyItem.samples(count: 3)],
                 analyses: [makeAnalysis()],
@@ -392,7 +392,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let secondWords = makeVocabularyItems(prefix: "second", count: 3)
         let historyStore = MockHistoryStore()
         let harness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(
+            sourceProvider: HarnessMockSourceProvider(
                 images: [
                     makeSourceImage(id: "background-1"),
                     makeSourceImage(id: "background-2")
@@ -434,7 +434,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let historyStore = MockHistoryStore()
         let renderEngine = FailingRenderEngine(failingCall: 2, error: MockError.unexpectedCall)
         let harness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            sourceProvider: HarnessMockSourceProvider(images: [makeSourceImage(id: "background-1")]),
             aiProvider: MockAIProvider(
                 words: [VocabularyItem.samples(count: 3)],
                 analyses: [makeAnalysis()],
@@ -467,7 +467,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let desktopSetter = MockDesktopWallpaperSetter()
         let historyStore = MockHistoryStore()
         let harness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            sourceProvider: HarnessMockSourceProvider(images: [makeSourceImage(id: "background-1")]),
             aiProvider: MockAIProvider(
                 words: [makeVocabularyItems(prefix: "short", count: 2)],
                 analyses: [],
@@ -503,7 +503,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let display = makeDisplay(id: "display-invalid-words-retry")
         let validWords = makeVocabularyItems(prefix: "valid", count: 3)
         let secondPlan = makePlan(display: display, score: 0.9, word: "valid")
-        let sourceProvider = MockSourceProvider(
+        let sourceProvider = HarnessMockSourceProvider(
             images: [
                 makeSourceImage(id: "background-invalid"),
                 makeSourceImage(id: "background-valid")
@@ -549,7 +549,7 @@ final class WallpaperHarnessTests: XCTestCase {
         let outputDirectory = try makeTemporaryDirectory()
         let display = makeDisplay(id: "display-text-correctness")
         let harness = WallpaperHarness(
-            sourceProvider: MockSourceProvider(images: [makeSourceImage(id: "background-1")]),
+            sourceProvider: HarnessMockSourceProvider(images: [makeSourceImage(id: "background-1")]),
             aiProvider: MockAIProvider(
                 words: [VocabularyItem.samples(count: 3)],
                 analyses: [makeAnalysis()],
@@ -705,7 +705,7 @@ private final class CallLog: @unchecked Sendable {
     }
 }
 
-private final class MockSourceProvider: SourceProvider, @unchecked Sendable {
+private final class HarnessMockSourceProvider: SourceProvider, @unchecked Sendable {
     let id = "mock-source"
     private(set) var makeSourceImageCalls: [DisplayTarget] = []
     private var images: [SourceImage]

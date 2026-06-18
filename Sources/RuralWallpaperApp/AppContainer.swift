@@ -20,6 +20,8 @@ enum AppContainerError: Error, LocalizedError {
     case invalidBaseURL
     case invalidHeaderLine(String)
     case missingAPIKey
+    case noDisplaysAvailable
+    case mockGenerationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +31,10 @@ enum AppContainerError: Error, LocalizedError {
             "Header must use `Name: Value`: \(line)"
         case .missingAPIKey:
             "API Key is required."
+        case .noDisplaysAvailable:
+            "No display is available."
+        case .mockGenerationFailed(let message):
+            message
         }
     }
 }
@@ -43,6 +49,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var settings: AppSettings
     @Published private(set) var providerSettings: ProviderSettingsDraft
     @Published private(set) var displays: [DisplayTarget]
+    @Published private(set) var lastGeneratedWallpaperURLs: [URL] = []
     @Published var lastErrorMessage: String?
 
     private let settingsStore: any SettingsStore
@@ -140,6 +147,50 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    func runMockWallpaperFlow() async throws -> [WallpaperHarnessResult] {
+        let currentDisplays = displayProvider.currentDisplays()
+        displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
+
+        let targets = enabledDisplays(from: displays)
+        guard !targets.isEmpty else {
+            throw AppContainerError.noDisplaysAvailable
+        }
+
+        let outputDirectory = Self.applicationSupportDirectory()
+            .appendingPathComponent("Generated", isDirectory: true)
+        let desktopSetter = LoggingDesktopWallpaperSetter()
+        let harness = WallpaperHarness(
+            sourceProvider: MockSourceProvider(),
+            aiProvider: MockPreviewProvider(),
+            layoutPlanner: WordLayoutPlanner(),
+            renderEngine: CoreGraphicsRenderEngine(),
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            settings: settings
+        )
+        let coordinator = DisplayCoordinator(
+            displayProvider: StaticDisplayProvider(displays: targets),
+            harness: harness
+        )
+        let results = await coordinator.runOnce(settings: settings)
+        let failed = results.first { $0.state != .succeeded }
+
+        if let failed {
+            throw AppContainerError.mockGenerationFailed(
+                failed.errorDescription
+                    ?? failed.harnessResult?.record.failureReason
+                    ?? "Mock generation failed for \(failed.display.friendlyName)."
+            )
+        }
+
+        let harnessResults = results.compactMap(\.harnessResult)
+        lastGeneratedWallpaperURLs = harnessResults.compactMap(\.record.finalImageURL)
+        lastErrorMessage = "Generated \(harnessResults.count) wallpaper(s)."
+
+        return harnessResults
+    }
+
     private func makeProviderConfig(from draft: ProviderSettingsDraft) throws -> ProviderConfig {
         guard let baseURL = URL(string: draft.baseURL), baseURL.scheme != nil else {
             throw AppContainerError.invalidBaseURL
@@ -197,7 +248,15 @@ final class AppContainer: ObservableObject {
         return headers
     }
 
-    private static func applicationSupportDirectory() -> URL {
+    private func enabledDisplays(from sourceDisplays: [DisplayTarget]) -> [DisplayTarget] {
+        guard !settings.enabledDisplayIDs.isEmpty else {
+            return sourceDisplays
+        }
+
+        return sourceDisplays.filter { settings.enabledDisplayIDs.contains($0.id) }
+    }
+
+    static func applicationSupportDirectory() -> URL {
         let baseURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -210,7 +269,7 @@ final class AppContainer: ObservableObject {
         return directory
     }
 
-    private static func describe(_ error: Error) -> String {
+    static func describe(_ error: Error) -> String {
         if let localizedError = error as? LocalizedError,
            let description = localizedError.errorDescription {
             return description
@@ -218,10 +277,36 @@ final class AppContainer: ObservableObject {
 
         return String(describing: error)
     }
+
+    private static func fallbackDisplay() -> DisplayTarget {
+        DisplayTarget(
+            id: "mock-display",
+            frame: CoreRect(x: 0, y: 0, width: 1440, height: 900),
+            pixelSize: PixelSize(width: 1440, height: 900),
+            scale: 1,
+            colorSpace: "sRGB",
+            isMain: true,
+            friendlyName: "Mock Display"
+        )
+    }
 }
 
 private enum ProviderDefaults {
     static let baseURL = "RuralWallpaper.Provider.BaseURL"
     static let model = "RuralWallpaper.Provider.Model"
     static let additionalHeaders = "RuralWallpaper.Provider.AdditionalHeaders"
+}
+
+private struct StaticDisplayProvider: DisplayProvider {
+    var displays: [DisplayTarget]
+
+    func currentDisplays() -> [DisplayTarget] {
+        displays
+    }
+}
+
+private final class LoggingDesktopWallpaperSetter: DesktopWallpaperSetter, @unchecked Sendable {
+    func setWallpaper(fileURL: URL, for display: DisplayTarget) throws {
+        print("Mock desktop setter would set \(fileURL.path) for \(display.friendlyName)")
+    }
 }
