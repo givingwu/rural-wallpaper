@@ -113,6 +113,22 @@ final class DisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(startedDisplayIDs, ["sequential", "sequential"])
     }
 
+    func testRunOnceStartsNewRunAfterRefreshStartedRunCompletes() async throws {
+        let display = makeDisplay(id: "refresh-completed")
+        let provider = StubDisplayProvider(displays: [display])
+        let runner = RecordingDisplayRunner()
+        let coordinator = DisplayCoordinator(displayProvider: provider, runner: runner)
+
+        await coordinator.refreshDisplays(settings: .default)
+        await runner.waitUntilStarted(count: 1)
+
+        let results = await coordinator.runOnce(settings: .default)
+        let startedDisplayIDs = await runner.startedDisplayIDs()
+
+        XCTAssertEqual(results.map(\.display.id), ["refresh-completed"])
+        XCTAssertEqual(startedDisplayIDs, ["refresh-completed", "refresh-completed"])
+    }
+
     func testRefreshDisplaysRestartsRunWhenDisplaySnapshotChangesForSameID() async throws {
         let original = makeDisplay(id: "shared")
         let resized = makeDisplay(
