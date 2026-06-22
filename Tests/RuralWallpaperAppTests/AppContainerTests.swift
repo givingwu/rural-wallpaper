@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import RuralWallpaperCore
 @testable import RuralWallpaperApp
@@ -191,6 +192,120 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(reloaded.providerSettings.unsplashAccessKey, "unsplash-secret")
     }
 
+    @MainActor
+    func testGenerateGlassPreviewDoesNotApplyDesktopWallpaper() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        let setter = SpyDesktopWallpaperSetter()
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: setter
+        )
+
+        let preview = try await container.generateGlassPreview()
+
+        XCTAssertEqual(container.activeGlassPreview, preview)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
+        XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+        XCTAssertTrue(setter.calls.isEmpty)
+    }
+
+    @MainActor
+    func testApplyGlassPreviewSetsDesktopWallpaperOnlyAfterPreviewExists() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        let setter = SpyDesktopWallpaperSetter()
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: setter
+        )
+
+        let preview = try await container.generateGlassPreview()
+        try container.applyGlassPreview()
+
+        XCTAssertEqual(setter.calls, [
+            WallpaperSetCall(fileURL: preview.previewImageURL, display: display)
+        ])
+    }
+
+    @MainActor
+    func testGenerateGlassPreviewWritesExecutionOrderToLog() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        let logURL = tempDirectory.appendingPathComponent("test.log")
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: SpyDesktopWallpaperSetter(),
+            logger: AppLogger(logFileURL: logURL)
+        )
+
+        _ = try await container.generateGlassPreview()
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(log.contains("source.done"))
+        XCTAssertTrue(log.contains("prompt=test"))
+        assertLogOrder(
+            log,
+            [
+                "preview.begin",
+                "display.selected",
+                "source.begin",
+                "source.done",
+                "words.begin",
+                "words.done count=3",
+                "render.begin",
+                "render.done",
+                "preview.done"
+            ]
+        )
+    }
+
+    @MainActor
+    func testGenerateGlassPreviewFromSelectedImageUsesLocalImageSource() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let selectedImageURL = tempDirectory.appendingPathComponent("selected.png")
+        try makeTestPNG().write(to: selectedImageURL)
+        let display = makeDisplay(id: "built-in")
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview(from: selectedImageURL)
+
+        XCTAssertEqual(preview.sourceImageURL.pathExtension, "png")
+        XCTAssertNotEqual(preview.sourceImageURL, selectedImageURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
+        XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+    }
+
     private func makeDisplay(id: String) -> DisplayTarget {
         DisplayTarget(
             id: id,
@@ -201,6 +316,78 @@ final class AppContainerTests: XCTestCase {
             isMain: true,
             friendlyName: id
         )
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RuralWallpaperAppTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeTestPNG() throws -> Data {
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: 320,
+                height: 180,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(CGColor(red: 0.08, green: 0.12, blue: 0.16, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 320, height: 180))
+        let image = try XCTUnwrap(context.makeImage())
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    private func previewWords() -> [VocabularyItem] {
+        [
+            VocabularyItem(
+                word: "meadow",
+                partOfSpeech: "noun",
+                zhDefinition: "草地",
+                example: "The meadow looks calm on the desktop.",
+                difficulty: 2,
+                sourceReason: "Test fixture."
+            ),
+            VocabularyItem(
+                word: "ridge",
+                partOfSpeech: "noun",
+                zhDefinition: "山脊",
+                example: "A ridge fades in the distance.",
+                difficulty: 2,
+                sourceReason: "Test fixture."
+            ),
+            VocabularyItem(
+                word: "glow",
+                partOfSpeech: "noun",
+                zhDefinition: "微光",
+                example: "A glow softens the wallpaper.",
+                difficulty: 2,
+                sourceReason: "Test fixture."
+            )
+        ]
+    }
+
+    private func assertLogOrder(
+        _ log: String,
+        _ tokens: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        var searchStart = log.startIndex
+        for token in tokens {
+            guard let range = log[searchStart...].range(of: token) else {
+                XCTFail("Missing log token: \(token)\n\(log)", file: file, line: line)
+                return
+            }
+            searchStart = range.upperBound
+        }
     }
 }
 
@@ -271,5 +458,45 @@ private struct StaticTestDisplayProvider: DisplayProvider {
 
     func currentDisplays() -> [DisplayTarget] {
         displays
+    }
+}
+
+private struct StaticPreviewSourceProvider: SourceProvider {
+    let id = "static-preview"
+    var imageData: Data
+
+    func makeSourceImage(for display: DisplayTarget, settings: AppSettings) async throws -> SourceImage {
+        SourceImage(
+            imageData: imageData,
+            attribution: .aiGenerated(
+                AIGeneratedAttribution(
+                    prompt: "test",
+                    providerID: "test",
+                    model: "test"
+                )
+            ),
+            prompt: "test"
+        )
+    }
+}
+
+private struct StaticImageFileWordProvider: ImageFileWordProvider {
+    var words: [VocabularyItem]
+
+    func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
+        words
+    }
+}
+
+private struct WallpaperSetCall: Equatable {
+    var fileURL: URL
+    var display: DisplayTarget
+}
+
+private final class SpyDesktopWallpaperSetter: DesktopWallpaperSetter, @unchecked Sendable {
+    var calls: [WallpaperSetCall] = []
+
+    func setWallpaper(fileURL: URL, for display: DisplayTarget) throws {
+        calls.append(WallpaperSetCall(fileURL: fileURL, display: display))
     }
 }

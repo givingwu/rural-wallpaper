@@ -1,3 +1,4 @@
+import RuralWallpaperCore
 import SwiftUI
 
 struct ProviderSettingsView: View {
@@ -8,31 +9,15 @@ struct ProviderSettingsView: View {
 
     var body: some View {
         Form {
-            TextField("Base URL", text: $draft.baseURL)
-                .textFieldStyle(.roundedBorder)
-            TextField("Model", text: $draft.model)
-                .textFieldStyle(.roundedBorder)
-            SecureField("API Key", text: $draft.apiKey)
-                .textFieldStyle(.roundedBorder)
-            SecureField("Unsplash Access Key", text: $draft.unsplashAccessKey)
-                .textFieldStyle(.roundedBorder)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Headers")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $draft.additionalHeaders)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 96)
-                    .border(.separator)
+            Picker("AI CLI", selection: $draft.cliCommand) {
+                Text("Codex").tag(CLIWordCommand.codex)
+                Text("Claude").tag(CLIWordCommand.claude)
             }
+            .pickerStyle(.segmented)
 
             HStack {
-                Button(action: onTest) {
-                    Label("Test Connection", systemImage: "checkmark.seal")
-                }
                 Button(action: onSave) {
-                    Label("Save Provider", systemImage: "key")
+                    Label("Save", systemImage: "tray.and.arrow.down")
                 }
                 Spacer()
             }

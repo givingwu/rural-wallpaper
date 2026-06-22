@@ -1,19 +1,20 @@
 import AppKit
 import RuralWallpaperCore
+import UniformTypeIdentifiers
 
 @MainActor
 final class MenuBarController: NSObject {
     private let container: AppContainer
     private let statusItem: NSStatusItem
     private let settingsWindowController: SettingsWindowController
-    private let historyWindowController: HistoryWindowController
+    private let previewWindowController: WallpaperPreviewWindowController
     private var state = MenuBarState()
 
     init(container: AppContainer) {
         self.container = container
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.settingsWindowController = SettingsWindowController(container: container)
-        self.historyWindowController = HistoryWindowController(container: container)
+        self.previewWindowController = WallpaperPreviewWindowController(container: container)
         super.init()
     }
 
@@ -38,31 +39,31 @@ final class MenuBarController: NSObject {
         menu.addItem(.separator())
 
         let generate = NSMenuItem(
-            title: "Generate Now",
-            action: #selector(generateNow),
+            title: "Generate Preview",
+            action: #selector(generatePreview),
             keyEquivalent: "g"
         )
         generate.target = self
         generate.isEnabled = !state.isGenerating
         menu.addItem(generate)
 
-        let pause = NSMenuItem(
-            title: "Pause Auto Update",
-            action: #selector(togglePause),
-            keyEquivalent: "p"
+        let choose = NSMenuItem(
+            title: "Choose Image...",
+            action: #selector(chooseImagePreview),
+            keyEquivalent: "o"
         )
-        pause.target = self
-        pause.state = state.isPaused ? .on : .off
-        menu.addItem(pause)
+        choose.target = self
+        choose.isEnabled = !state.isGenerating
+        menu.addItem(choose)
         menu.addItem(.separator())
-
-        let history = NSMenuItem(title: "History", action: #selector(showHistory), keyEquivalent: "h")
-        history.target = self
-        menu.addItem(history)
 
         let settings = NSMenuItem(title: "Settings", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
+
+        let logs = NSMenuItem(title: "Open Logs", action: #selector(openLogs), keyEquivalent: "l")
+        logs.target = self
+        menu.addItem(logs)
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
@@ -72,7 +73,37 @@ final class MenuBarController: NSObject {
         statusItem.menu = menu
     }
 
-    @objc private func generateNow() {
+    @objc private func generatePreview() {
+        runPreviewGeneration {
+            try await self.container.generateGlassPreview()
+        }
+    }
+
+    @objc private func chooseImagePreview() {
+        guard !state.isGenerating else {
+            rebuildMenu()
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.title = "Choose Wallpaper Image"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return
+        }
+
+        runPreviewGeneration {
+            try await self.container.generateGlassPreview(from: url)
+        }
+    }
+
+    private func runPreviewGeneration(
+        _ operation: @escaping @MainActor () async throws -> GlassWallpaperPreview
+    ) {
         guard state.beginManualGeneration() else {
             rebuildMenu()
             return
@@ -81,8 +112,9 @@ final class MenuBarController: NSObject {
         rebuildMenu()
         Task { @MainActor in
             do {
-                _ = try await container.runWallpaperFlow()
+                _ = try await operation()
                 state.finishSuccessfully()
+                previewWindowController.show()
             } catch {
                 let message = AppContainer.describe(error)
                 container.lastErrorMessage = message
@@ -93,20 +125,13 @@ final class MenuBarController: NSObject {
         }
     }
 
-    @objc private func togglePause() {
-        state.setPaused(!state.isPaused)
-        rebuildMenu()
-    }
-
     @objc private func showSettings() {
         settingsWindowController.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func showHistory() {
-        historyWindowController.reload()
-        historyWindowController.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+    @objc private func openLogs() {
+        NSWorkspace.shared.open(container.logFileURL)
     }
 
     @objc private func quit() {

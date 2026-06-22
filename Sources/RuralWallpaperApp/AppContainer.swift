@@ -3,6 +3,7 @@ import RuralWallpaperCore
 import SwiftUI
 
 struct ProviderSettingsDraft: Equatable {
+    var cliCommand: CLIWordCommand
     var baseURL: String
     var model: String
     var apiKey: String
@@ -10,12 +11,14 @@ struct ProviderSettingsDraft: Equatable {
     var unsplashAccessKey: String
 
     init(
+        cliCommand: CLIWordCommand = .codex,
         baseURL: String,
         model: String,
         apiKey: String,
         additionalHeaders: String,
         unsplashAccessKey: String = ""
     ) {
+        self.cliCommand = cliCommand
         self.baseURL = baseURL
         self.model = model
         self.apiKey = apiKey
@@ -24,6 +27,7 @@ struct ProviderSettingsDraft: Equatable {
     }
 
     static let `default` = ProviderSettingsDraft(
+        cliCommand: .codex,
         baseURL: "https://api.openai.com/v1",
         model: "gpt-4.1-mini",
         apiKey: "",
@@ -52,6 +56,7 @@ enum AppContainerError: Error, LocalizedError {
     case missingAPIKey
     case missingUnsplashAccessKey
     case noDisplaysAvailable
+    case noPreviewAvailable
     case mockGenerationFailed(String)
 
     var errorDescription: String? {
@@ -66,9 +71,36 @@ enum AppContainerError: Error, LocalizedError {
             "Unsplash Access Key is required."
         case .noDisplaysAvailable:
             "No display is available."
+        case .noPreviewAvailable:
+            "No wallpaper preview is available to apply."
         case .mockGenerationFailed(let message):
             message
         }
+    }
+}
+
+struct GlassWallpaperPreview: Equatable, Identifiable {
+    let id: UUID
+    let display: DisplayTarget
+    let sourceImageURL: URL
+    let previewImageURL: URL
+    let words: [VocabularyItem]
+    let createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        display: DisplayTarget,
+        sourceImageURL: URL,
+        previewImageURL: URL,
+        words: [VocabularyItem],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.display = display
+        self.sourceImageURL = sourceImageURL
+        self.previewImageURL = previewImageURL
+        self.words = words
+        self.createdAt = createdAt
     }
 }
 
@@ -88,6 +120,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var displays: [DisplayTarget]
     @Published private(set) var lastGeneratedWallpaperURLs: [URL] = []
     @Published private(set) var providerMode: ProviderMode = .mockPreview
+    @Published private(set) var activeGlassPreview: GlassWallpaperPreview?
     @Published var lastErrorMessage: String?
 
     private let settingsStore: any SettingsStore
@@ -95,18 +128,43 @@ final class AppContainer: ObservableObject {
     private let historyStore: any HistoryStore
     private let displayProvider: any DisplayProvider
     private let userDefaults: UserDefaults
+    private let supportDirectory: URL
+    private let previewSourceProvider: any SourceProvider
+    private let previewWordProviderOverride: (any ImageFileWordProvider)?
+    private let previewDesktopSetter: any DesktopWallpaperSetter
+    private let logger: AppLogger
+
+    var logFileURL: URL {
+        logger.logFileURL
+    }
 
     init(
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
         secretStore: any SecretStore = KeychainSecretStore(),
         displayProvider: any DisplayProvider = NSScreenDisplayProvider(),
         historyStore: (any HistoryStore)? = nil,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        supportDirectory: URL? = nil,
+        previewSourceProvider: (any SourceProvider)? = nil,
+        previewWordProvider: (any ImageFileWordProvider)? = nil,
+        previewDesktopSetter: (any DesktopWallpaperSetter)? = nil,
+        logger: AppLogger? = nil
     ) {
         self.settingsStore = settingsStore
         self.secretStore = secretStore
         self.displayProvider = displayProvider
         self.userDefaults = userDefaults
+        let resolvedSupportDirectory = supportDirectory ?? Self.applicationSupportDirectory()
+        self.supportDirectory = resolvedSupportDirectory
+        self.previewSourceProvider = previewSourceProvider ?? CurrentDesktopSource(
+            workspaceDirectory: resolvedSupportDirectory
+                .appendingPathComponent("CurrentDesktop", isDirectory: true)
+        )
+        self.previewWordProviderOverride = previewWordProvider
+        self.previewDesktopSetter = previewDesktopSetter ?? NSWorkspaceDesktopWallpaperSetter()
+        self.logger = logger ?? AppLogger(
+            logFileURL: resolvedSupportDirectory.appendingPathComponent("rural-wallpaper.log")
+        )
 
         var startupMessages: [String] = []
         let loadedSettings: AppSettings
@@ -119,7 +177,7 @@ final class AppContainer: ObservableObject {
 
         self.settings = loadedSettings
         self.historyStore = historyStore ?? FileHistoryStore(
-            storageURL: Self.applicationSupportDirectory()
+            storageURL: resolvedSupportDirectory
                 .appendingPathComponent("history.json"),
             retentionLimitPerDisplay: loadedSettings.historyLimitPerDisplay
         )
@@ -138,7 +196,9 @@ final class AppContainer: ObservableObject {
     }
 
     func reloadDisplays() {
+        logger.info("display.reload.begin")
         displays = displayProvider.currentDisplays()
+        logger.info("display.reload.done count=\(displays.count)")
     }
 
     func saveGenerationSettings(_ newSettings: AppSettings) {
@@ -206,6 +266,115 @@ final class AppContainer: ObservableObject {
         }
     }
 
+    @discardableResult
+    func generateGlassPreview() async throws -> GlassWallpaperPreview {
+        try await generateGlassPreview(using: previewSourceProvider)
+    }
+
+    @discardableResult
+    func generateGlassPreview(from imageURL: URL) async throws -> GlassWallpaperPreview {
+        let source = LocalImageFileSource(
+            imageURL: imageURL,
+            workspaceDirectory: supportDirectory
+                .appendingPathComponent("SelectedImages", isDirectory: true)
+        )
+        return try await generateGlassPreview(using: source)
+    }
+
+    @discardableResult
+    private func generateGlassPreview(using sourceProvider: any SourceProvider) async throws -> GlassWallpaperPreview {
+        logger.info("preview.begin")
+        do {
+            let currentDisplays = displayProvider.currentDisplays()
+            displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
+            guard let display = displays.first(where: \.isMain) ?? displays.first else {
+                throw AppContainerError.noDisplaysAvailable
+            }
+            logger.info("display.selected id=\(display.id) name=\(display.friendlyName) pixels=\(display.pixelSize.width)x\(display.pixelSize.height)")
+
+            let previewDirectory = supportDirectory.appendingPathComponent("Previews", isDirectory: true)
+            try FileManager.default.createDirectory(
+                at: previewDirectory,
+                withIntermediateDirectories: true
+            )
+            logger.info("preview.directory path=\(previewDirectory.path)")
+
+            logger.info("source.begin provider=\(sourceProvider.id)")
+            let source = try await sourceProvider.makeSourceImage(
+                for: display,
+                settings: settings
+            )
+            let sourceURL = try source.attribution.localFileURL
+                ?? writePreviewData(
+                    source.imageData,
+                    directory: previewDirectory,
+                    display: display,
+                    prefix: "source",
+                    fileExtension: "png"
+                )
+            let sourcePrompt = source.prompt
+                .map { " prompt=\($0.replacingOccurrences(of: "\n", with: " "))" }
+                ?? ""
+            logger.info("source.done bytes=\(source.imageData.count) path=\(sourceURL.path)\(sourcePrompt)")
+
+            let wordProvider = currentPreviewWordProvider()
+            logger.info("words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path)")
+            let words = try await wordProvider.extractWords(from: sourceURL)
+            guard (3...5).contains(words.count) else {
+                throw CLIWordProviderError.invalidWordCount(words.count)
+            }
+            logger.info("words.done count=\(words.count) words=\(words.map(\.word).joined(separator: ","))")
+
+            logger.info("render.begin mode=glass")
+            let rendered = try CoreGraphicsRenderEngine().renderGlassOverlay(
+                background: source.imageData,
+                words: words,
+                display: display
+            )
+            let previewURL = try writePreviewData(
+                rendered.pngData,
+                directory: previewDirectory,
+                display: display,
+                prefix: "glass-preview",
+                fileExtension: "png"
+            )
+            logger.info("render.done bytes=\(rendered.pngData.count) path=\(previewURL.path)")
+
+            let preview = GlassWallpaperPreview(
+                display: display,
+                sourceImageURL: sourceURL,
+                previewImageURL: previewURL,
+                words: words
+            )
+
+            activeGlassPreview = preview
+            lastGeneratedWallpaperURLs = [previewURL]
+            lastErrorMessage = "Preview generated with \(words.count) word(s)."
+            logger.info("preview.done id=\(preview.id.uuidString)")
+            return preview
+        } catch {
+            logger.error("preview.failed error=\(Self.describe(error))")
+            throw error
+        }
+    }
+
+    func applyGlassPreview(_ preview: GlassWallpaperPreview? = nil) throws {
+        logger.info("apply.begin")
+        guard let preview = preview ?? activeGlassPreview else {
+            logger.error("apply.failed error=\(AppContainerError.noPreviewAvailable.localizedDescription)")
+            throw AppContainerError.noPreviewAvailable
+        }
+
+        do {
+            try previewDesktopSetter.setWallpaper(fileURL: preview.previewImageURL, for: preview.display)
+            lastErrorMessage = "Applied preview to \(preview.display.friendlyName)."
+            logger.info("apply.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
+        } catch {
+            logger.error("apply.failed error=\(Self.describe(error))")
+            throw error
+        }
+    }
+
     func runWallpaperFlow() async throws -> [WallpaperHarnessResult] {
         let currentDisplays = displayProvider.currentDisplays()
         displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
@@ -215,7 +384,7 @@ final class AppContainer: ObservableObject {
             throw AppContainerError.noDisplaysAvailable
         }
 
-        let outputDirectory = Self.applicationSupportDirectory()
+        let outputDirectory = supportDirectory
             .appendingPathComponent("Generated", isDirectory: true)
         let dependencies = try makeGenerationDependencies()
         let harness = WallpaperHarness(
@@ -316,11 +485,21 @@ final class AppContainer: ObservableObject {
             try secretStore.write(draft.unsplashAccessKey, for: Self.unsplashSecretRef)
         }
 
+        userDefaults.set(draft.cliCommand.rawValue, forKey: ProviderDefaults.cliCommand)
         userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
         userDefaults.set(draft.model, forKey: ProviderDefaults.model)
         userDefaults.set(draft.additionalHeaders, forKey: ProviderDefaults.additionalHeaders)
 
         return config
+    }
+
+    private func currentPreviewWordProvider() -> any ImageFileWordProvider {
+        previewWordProviderOverride ?? CLIWordProvider(
+            command: providerSettings.cliCommand,
+            logHandler: { [logger] message in
+                logger.info(message)
+            }
+        )
     }
 
     private static func loadProviderSettings(
@@ -340,6 +519,9 @@ final class AppContainer: ObservableObject {
 
         return ProviderSettingsLoadResult(
             draft: ProviderSettingsDraft(
+                cliCommand: CLIWordCommand(
+                    rawValue: userDefaults.string(forKey: ProviderDefaults.cliCommand) ?? ""
+                ) ?? ProviderSettingsDraft.default.cliCommand,
                 baseURL: userDefaults.string(forKey: ProviderDefaults.baseURL)
                     ?? ProviderSettingsDraft.default.baseURL,
                 model: userDefaults.string(forKey: ProviderDefaults.model)
@@ -387,6 +569,22 @@ final class AppContainer: ObservableObject {
         return sourceDisplays.filter { settings.enabledDisplayIDs.contains($0.id) }
     }
 
+    private func writePreviewData(
+        _ data: Data,
+        directory: URL,
+        display: DisplayTarget,
+        prefix: String,
+        fileExtension: String
+    ) throws -> URL {
+        let fileURL = directory
+            .appendingPathComponent(
+                "\(prefix)-\(Self.safeFileComponent(display.id))-\(UUID().uuidString)"
+            )
+            .appendingPathExtension(fileExtension)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
     static func applicationSupportDirectory() -> URL {
         let baseURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -398,6 +596,15 @@ final class AppContainer: ObservableObject {
             withIntermediateDirectories: true
         )
         return directory
+    }
+
+    private static func safeFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let result = String(scalars)
+        return result.isEmpty ? "display" : result
     }
 
     static func describe(_ error: Error) -> String {
@@ -423,6 +630,7 @@ final class AppContainer: ObservableObject {
 }
 
 private enum ProviderDefaults {
+    static let cliCommand = "RuralWallpaper.Provider.CLICommand"
     static let baseURL = "RuralWallpaper.Provider.BaseURL"
     static let model = "RuralWallpaper.Provider.Model"
     static let additionalHeaders = "RuralWallpaper.Provider.AdditionalHeaders"
