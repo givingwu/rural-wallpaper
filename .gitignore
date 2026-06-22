@@ -1,8 +1,45 @@
+# macOS
 .DS_Store
+._*
+
+# Superpowers
 .superpowers/
-.build/
+
+# Xcode
+build/
 DerivedData/
-*.xcuserdata/
-*.xcworkspace/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/
+Package.resolved
+
+# Archives & distribution
+*.ipa
+*.dSYM.zip
+*.dSYM
+*.xcarchive
+
+# Code coverage
+*.gcno
+*.gcda
+*.profdata
+*.profraw
+
+# Secrets
+*.env
+.env.*
+
+# IDE
+.idea/
+*.swp
+*~
