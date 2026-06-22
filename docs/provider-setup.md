@@ -1,34 +1,49 @@
-# Provider Setup
+# CLI Provider Setup
 
-Rural Wallpaper 使用 OpenAI-compatible Provider。设置入口在菜单栏 `Settings -> Provider`。
+当前主流程使用本机 AI CLI，不在 App 里填写 Base URL、Model 或 API Key。
 
-## 字段
+## 支持的 CLI
 
-- `Base URL`：Provider 的 OpenAI-compatible API 根地址，例如 `https://api.openai.com/v1` 或你的代理服务地址。
-- `Model`：支持 vision 和 structured output 的模型名称。不同 Provider 的可用模型不同，请以你的 Provider 控制台为准。
-- `API Key`：只写入 macOS Keychain，不写入 `UserDefaults`、历史 JSON 或测试 fixture。
-- `Unsplash Access Key`：只写入 macOS Keychain，用于从 Unsplash API 获取壁纸。
-- `Headers`：可选的非敏感附加 header，每行 `Name: Value`。不要把 Authorization、API Key、Token 或 Secret 放在这里。
+- `codex`
+- `claude`
 
-## Test Connection
+App 会通过 `Process` 调用本机命令：
 
-`Test Connection` 会使用当前表单里的 API Key 临时向 `/chat/completions` 发送一个最小 JSON 探测请求：
+- Codex：`codex exec --skip-git-repo-check --ephemeral --sandbox read-only --image <path> -- <prompt>`
+- Claude：`claude --print --output-format text <prompt>`
 
-- 成功：API Key 和表单中的 Unsplash Access Key 写入 Keychain，非敏感配置写入 `UserDefaults`，设置页显示连接成功，并把生成模式切到真实 Provider。
-- 失败：设置页显示错误摘要，不保存这次表单配置，并继续使用本地 mock preview flow。
+## 设置入口
 
-## 能力要求
+1. 启动 App。
+2. 点击菜单栏 Rural Wallpaper 图标。
+3. 打开 `Settings -> Provider`。
+4. 在 `AI CLI` 中选择 `Codex` 或 `Claude`。
+5. 点击 `Save`。
 
-用于完整生成时，Provider 需要支持：
+## 输出要求
 
-- Vision：从 Unsplash 图片中提取 3-5 个英文词。
-- Structured output：返回 JSON，便于解析词汇、中文释义和例句。
+CLI 必须返回 JSON，格式如下：
 
-图片来源固定为 Unsplash。AI 不再生成壁纸，也不会把英文内容叠加到桌面图片上。
+```json
+{
+  "words": [
+    {
+      "word": "tranquil",
+      "partOfSpeech": "adjective",
+      "zhDefinition": "宁静的",
+      "example": "The lake feels tranquil at sunrise.",
+      "difficulty": 3,
+      "sourceReason": "The scene has calm water and soft light."
+    }
+  ]
+}
+```
 
-## 安全检查
+如果 CLI 输出 Markdown code fence，App 会尝试提取其中的 JSON。非 JSON 输出会中断生成，并在 App 中显示错误。
 
-- 不要提交真实 API Key 或 Unsplash Access Key。
-- 不要把 API Key 写入 `Headers`。
-- 生成历史写入前会扫描明显的 `Bearer `、`apiKey`、`sk-...` 形态并拒绝写入。
-- 自动测试全部使用 mock，不会访问真实 Provider。
+## 注意
+
+- App 不保存 AI API Key。
+- 真实鉴权由 `codex` 或 `claude` CLI 自己管理。
+- GUI App 从 Finder 启动时不会读取你的 shell rc 文件。App 会自动补充常见 CLI / Node 路径，包括 `~/.nvm/versions/node/*/bin`、`~/.volta/bin`、`~/.asdf/shims`、`~/.mise/shims`、`~/.local/share/pnpm`、`~/.local/bin`、`/opt/homebrew/bin` 和 `/usr/local/bin`。
+- 如果日志出现 `exec: node: not found`，优先检查 `Open Logs` 中的 `cli.path` 是否包含实际 `node` 所在目录。
