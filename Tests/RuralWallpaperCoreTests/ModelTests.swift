@@ -122,7 +122,7 @@ final class ModelTests: XCTestCase {
             model: "vision-model",
             secretRef: SecretRef(service: "RuralWallpaper", account: "default"),
             additionalHeaders: additionalHeaders,
-            capabilities: [.vision, .imageGeneration, .structuredOutput]
+            capabilities: [.vision, .structuredOutput]
         )
     }
 

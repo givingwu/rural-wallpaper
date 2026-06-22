@@ -12,7 +12,7 @@ public struct UnsplashSource: SourceProvider {
     public init(
         id: String = UnsplashSource.defaultID,
         accessKey: String,
-        httpClient: any HTTPClient,
+        httpClient: any HTTPClient = URLSessionHTTPClient(),
         baseURL: URL = URL(string: "https://api.unsplash.com")!
     ) {
         self.id = id

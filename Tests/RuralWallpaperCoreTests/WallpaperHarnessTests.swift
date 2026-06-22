@@ -3,6 +3,58 @@ import XCTest
 @testable import RuralWallpaperCore
 
 final class WallpaperHarnessTests: XCTestCase {
+    func testCleanSourceModeSetsOriginalImageAndRecordsWordsWithoutRendering() async throws {
+        let outputDirectory = try makeTemporaryDirectory()
+        let display = makeDisplay(id: "display-clean-source")
+        let sourceImage = makeSourceImage(id: "clean-background")
+        let words = VocabularyItem.samples(count: 4)
+        let callLog = CallLog()
+        let sourceProvider = HarnessMockSourceProvider(
+            images: [sourceImage],
+            callLog: callLog
+        )
+        let aiProvider = MockAIProvider(
+            words: [words],
+            analyses: [],
+            evaluations: [],
+            callLog: callLog
+        )
+        let layoutPlanner = MockLayoutPlanner(layoutBatches: [], callLog: callLog)
+        let renderEngine = MockRenderEngine(callLog: callLog)
+        let desktopSetter = MockDesktopWallpaperSetter(callLog: callLog)
+        let historyStore = MockHistoryStore(callLog: callLog)
+        let harness = WallpaperHarness(
+            sourceProvider: sourceProvider,
+            aiProvider: aiProvider,
+            layoutPlanner: layoutPlanner,
+            renderEngine: renderEngine,
+            desktopSetter: desktopSetter,
+            historyStore: historyStore,
+            outputDirectory: outputDirectory,
+            compositionMode: .cleanSourceImage,
+            settings: .default
+        )
+
+        let result = try await harness.run(display: display)
+        let finalURL = try XCTUnwrap(result.record.finalImageURL)
+
+        XCTAssertEqual(result.state, .succeeded)
+        XCTAssertEqual(try Data(contentsOf: finalURL), sourceImage.imageData)
+        XCTAssertEqual(result.record.words, words)
+        XCTAssertNil(result.record.layout)
+        XCTAssertNil(result.record.evaluation)
+        XCTAssertTrue(layoutPlanner.maxCandidatesRequests.isEmpty)
+        XCTAssertTrue(renderEngine.renderedPlans.isEmpty)
+        XCTAssertTrue(aiProvider.analyzeImageCalls.isEmpty)
+        XCTAssertTrue(aiProvider.evaluatedPlans.isEmpty)
+        XCTAssertEqual(desktopSetter.calls.map(\.fileURL), [finalURL])
+        XCTAssertEqual(historyStore.appendedRecords, [result.record])
+        XCTAssertEqual(
+            callLog.events,
+            ["source", "extractWords", "setDesktop", "appendHistory"]
+        )
+    }
+
     func testSuccessfulPathSetsDesktopAndRecordsHistory() async throws {
         let outputDirectory = try makeTemporaryDirectory()
         let display = makeDisplay(id: "display-success")
@@ -601,6 +653,17 @@ final class WallpaperHarnessTests: XCTestCase {
         }
     }
 
+    func testStateMachineAllowsCleanSourceFlowAfterWordsAreExtracted() throws {
+        var machine = WallpaperJobStateMachine()
+
+        try machine.apply(.start)
+        try machine.apply(.sourceReady)
+        try machine.apply(.wordsExtracted)
+        try machine.apply(.learningContentAccepted)
+
+        XCTAssertEqual(machine.stage, .settingWallpaper)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WallpaperHarnessTests-\(UUID().uuidString)", isDirectory: true)
@@ -747,10 +810,6 @@ private final class MockAIProvider: AIProvider, @unchecked Sendable {
         self.analyses = analyses
         self.evaluations = evaluations
         self.callLog = callLog
-    }
-
-    func generateImage(prompt: String, size: CGSize) async throws -> GeneratedSourceImage {
-        throw MockError.unexpectedCall
     }
 
     func extractWords(from image: Data, countRange: ClosedRange<Int>) async throws -> [VocabularyItem] {

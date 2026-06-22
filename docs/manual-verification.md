@@ -6,18 +6,18 @@
 2. 在菜单栏打开 Rural Wallpaper。
 3. 点击 `Generate Now`。
 4. 打开 `History`。
-5. 确认出现一条成功记录，包含 3-5 个英文词、中文释义、例句和评分。
+5. 确认出现一条成功记录，包含 3-5 个英文词、中文释义和例句。
 6. 确认生成图片位于 `~/Library/Application Support/RuralWallpaper/Generated/`。
 
-Mock flow 使用 logging desktop setter，不直接替换桌面。
+Mock flow 使用本地渐变图片和 logging desktop setter，不直接替换桌面。
 
 ## Real Provider Smoke
 
 1. 打开 `Settings -> Provider`。
-2. 填入 `Base URL`、`Model`、`API Key`。
+2. 填入 `Base URL`、`Model`、`API Key`、`Unsplash Access Key`。
 3. 点击 `Test Connection`。
 4. 看到连接成功后点击菜单栏 `Generate Now`。
-5. 确认桌面壁纸被替换，`History` 出现成功记录。
+5. 确认桌面壁纸被替换为 Unsplash 原图，`History` 出现成功记录和学习词汇。
 
 若 `Test Connection` 失败，设置页应显示错误摘要，并且不保存这次表单配置。若生成阶段 Provider 返回失败，菜单栏状态应显示失败摘要，`History` 应保留失败记录。
 
@@ -40,8 +40,8 @@ Mock flow 使用 logging desktop setter，不直接替换桌面。
 
 ## Keychain And Sensitive Data
 
-1. Provider API Key 只在 Settings 中输入。
-2. 确认仓库内不要出现真实 API Key。
+1. Provider API Key 和 Unsplash Access Key 只在 Settings 中输入。
+2. 确认仓库内不要出现真实密钥。
 3. 检查历史文件：
 
 ```bash

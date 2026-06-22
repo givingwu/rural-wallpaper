@@ -37,6 +37,7 @@ public enum WallpaperJobTransition: String, Codable, Equatable, Sendable {
     case rendered
     case evaluationRejected
     case evaluationAccepted
+    case learningContentAccepted
     case retryBackground
     case wallpaperSet
     case historyRecorded
@@ -81,6 +82,8 @@ public struct WallpaperJobStateMachine: Equatable, Sendable {
              (.planningLayout, .retryBackground):
             return .makingSource
         case (.evaluating, .evaluationAccepted):
+            return .settingWallpaper
+        case (.analyzingImage, .learningContentAccepted):
             return .settingWallpaper
         case (.settingWallpaper, .wallpaperSet):
             return .recordingHistory

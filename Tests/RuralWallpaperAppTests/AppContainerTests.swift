@@ -163,6 +163,34 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(container.lastErrorMessage, "Base URL is invalid.")
     }
 
+    @MainActor
+    func testProviderSettingsRoundTripsUnsplashAccessKeyThroughKeychain() {
+        let secretStore = InMemorySecretStore()
+        let draft = ProviderSettingsDraft(
+            baseURL: "https://example.test/v1",
+            model: "vision-model",
+            apiKey: "provider-secret",
+            additionalHeaders: "",
+            unsplashAccessKey: "unsplash-secret"
+        )
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: secretStore,
+            displayProvider: StaticTestDisplayProvider(displays: [makeDisplay(id: "built-in")]),
+            userDefaults: userDefaults
+        )
+
+        container.saveProviderSettings(draft)
+
+        let reloaded = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: secretStore,
+            displayProvider: StaticTestDisplayProvider(displays: [makeDisplay(id: "built-in")]),
+            userDefaults: userDefaults
+        )
+        XCTAssertEqual(reloaded.providerSettings.unsplashAccessKey, "unsplash-secret")
+    }
+
     private func makeDisplay(id: String) -> DisplayTarget {
         DisplayTarget(
             id: id,

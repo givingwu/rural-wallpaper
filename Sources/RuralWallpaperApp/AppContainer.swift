@@ -7,12 +7,28 @@ struct ProviderSettingsDraft: Equatable {
     var model: String
     var apiKey: String
     var additionalHeaders: String
+    var unsplashAccessKey: String
+
+    init(
+        baseURL: String,
+        model: String,
+        apiKey: String,
+        additionalHeaders: String,
+        unsplashAccessKey: String = ""
+    ) {
+        self.baseURL = baseURL
+        self.model = model
+        self.apiKey = apiKey
+        self.additionalHeaders = additionalHeaders
+        self.unsplashAccessKey = unsplashAccessKey
+    }
 
     static let `default` = ProviderSettingsDraft(
         baseURL: "https://api.openai.com/v1",
         model: "gpt-4.1-mini",
         apiKey: "",
-        additionalHeaders: ""
+        additionalHeaders: "",
+        unsplashAccessKey: ""
     )
 }
 
@@ -34,6 +50,7 @@ enum AppContainerError: Error, LocalizedError {
     case invalidBaseURL
     case invalidHeaderLine(String)
     case missingAPIKey
+    case missingUnsplashAccessKey
     case noDisplaysAvailable
     case mockGenerationFailed(String)
 
@@ -45,6 +62,8 @@ enum AppContainerError: Error, LocalizedError {
             "Header must use `Name: Value`: \(line)"
         case .missingAPIKey:
             "API Key is required."
+        case .missingUnsplashAccessKey:
+            "Unsplash Access Key is required."
         case .noDisplaysAvailable:
             "No display is available."
         case .mockGenerationFailed(let message):
@@ -58,6 +77,10 @@ final class AppContainer: ObservableObject {
     static let providerSecretRef = SecretRef(
         service: "RuralWallpaper",
         account: "default-provider"
+    )
+    static let unsplashSecretRef = SecretRef(
+        service: "RuralWallpaper",
+        account: "unsplash-access-key"
     )
 
     @Published private(set) var settings: AppSettings
@@ -203,6 +226,7 @@ final class AppContainer: ObservableObject {
             desktopSetter: dependencies.desktopSetter,
             historyStore: historyStore,
             outputDirectory: outputDirectory,
+            compositionMode: dependencies.compositionMode,
             settings: settings
         )
         let coordinator = DisplayCoordinator(
@@ -233,20 +257,25 @@ final class AppContainer: ObservableObject {
             return GenerationDependencies(
                 sourceProvider: MockSourceProvider(),
                 aiProvider: MockPreviewProvider(),
-                desktopSetter: LoggingDesktopWallpaperSetter()
+                desktopSetter: LoggingDesktopWallpaperSetter(),
+                compositionMode: .cleanSourceImage
             )
         case .realProvider:
             let config = try makeProviderConfig(from: providerSettings)
             let provider = OpenAICompatibleProvider(config: config, secretStore: secretStore)
+            let unsplashAccessKey = providerSettings.unsplashAccessKey
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !unsplashAccessKey.isEmpty else {
+                throw AppContainerError.missingUnsplashAccessKey
+            }
 
             return GenerationDependencies(
-                sourceProvider: AIImageSource(
-                    provider: provider,
-                    providerID: config.id,
-                    model: config.model
+                sourceProvider: UnsplashSource(
+                    accessKey: unsplashAccessKey
                 ),
                 aiProvider: provider,
-                desktopSetter: NSWorkspaceDesktopWallpaperSetter()
+                desktopSetter: NSWorkspaceDesktopWallpaperSetter(),
+                compositionMode: .cleanSourceImage
             )
         }
     }
@@ -268,7 +297,7 @@ final class AppContainer: ObservableObject {
             model: draft.model.trimmingCharacters(in: .whitespacesAndNewlines),
             secretRef: Self.providerSecretRef,
             additionalHeaders: try Self.parseHeaders(draft.additionalHeaders),
-            capabilities: [.vision, .imageGeneration, .structuredOutput]
+            capabilities: [.vision, .structuredOutput]
         )
     }
 
@@ -280,6 +309,11 @@ final class AppContainer: ObservableObject {
             try secretStore.delete(Self.providerSecretRef)
         } else {
             try secretStore.write(draft.apiKey, for: Self.providerSecretRef)
+        }
+        if draft.unsplashAccessKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try secretStore.delete(Self.unsplashSecretRef)
+        } else {
+            try secretStore.write(draft.unsplashAccessKey, for: Self.unsplashSecretRef)
         }
 
         userDefaults.set(draft.baseURL, forKey: ProviderDefaults.baseURL)
@@ -293,13 +327,14 @@ final class AppContainer: ObservableObject {
         userDefaults: UserDefaults,
         secretStore: any SecretStore
     ) -> ProviderSettingsLoadResult {
-        let apiKey: String
-        let secretLoadError: Error?
+        var apiKey = ""
+        var unsplashAccessKey = ""
+        var secretLoadError: Error?
         do {
             apiKey = try secretStore.read(Self.providerSecretRef) ?? ""
+            unsplashAccessKey = try secretStore.read(Self.unsplashSecretRef) ?? ""
             secretLoadError = nil
         } catch {
-            apiKey = ""
             secretLoadError = error
         }
 
@@ -311,7 +346,8 @@ final class AppContainer: ObservableObject {
                     ?? ProviderSettingsDraft.default.model,
                 apiKey: apiKey,
                 additionalHeaders: userDefaults.string(forKey: ProviderDefaults.additionalHeaders)
-                    ?? ProviderSettingsDraft.default.additionalHeaders
+                    ?? ProviderSettingsDraft.default.additionalHeaders,
+                unsplashAccessKey: unsplashAccessKey
             ),
             error: secretLoadError
         )
@@ -414,6 +450,7 @@ private struct GenerationDependencies {
     var sourceProvider: any SourceProvider
     var aiProvider: any AIProvider
     var desktopSetter: any DesktopWallpaperSetter
+    var compositionMode: WallpaperCompositionMode
 }
 
 private struct StaticDisplayProvider: DisplayProvider {

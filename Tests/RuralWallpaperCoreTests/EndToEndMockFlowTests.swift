@@ -16,6 +16,7 @@ final class EndToEndMockFlowTests: XCTestCase {
             desktopSetter: desktopSetter,
             historyStore: historyStore,
             outputDirectory: outputDirectory,
+            compositionMode: .cleanSourceImage,
             settings: AppSettings.default
         )
 
@@ -29,6 +30,8 @@ final class EndToEndMockFlowTests: XCTestCase {
         XCTAssertEqual(desktopSetter.calls.first?.display, display)
         XCTAssertEqual(historyStore.records, [result.record])
         XCTAssertTrue((3...5).contains(result.record.words.count))
+        XCTAssertNil(result.record.layout)
+        XCTAssertNil(result.record.evaluation)
         XCTAssertTrue(FileManager.default.fileExists(atPath: finalURL.path))
         XCTAssertNotNil(imageSource)
         XCTAssertNotNil(CGImageSourceCreateImageAtIndex(try XCTUnwrap(imageSource), 0, nil))

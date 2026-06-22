@@ -1,22 +1,7 @@
-import CoreGraphics
 import Foundation
 
 public struct MockPreviewProvider: AIProvider {
     public init() {}
-
-    public func generateImage(prompt: String, size: CGSize) async throws -> GeneratedSourceImage {
-        let pixelSize = PixelSize(
-            width: max(1, Int(size.width.rounded())),
-            height: max(1, Int(size.height.rounded()))
-        )
-
-        return GeneratedSourceImage(
-            data: try MockSourceProvider.makeGradientPNG(pixelSize: pixelSize),
-            prompt: prompt,
-            revisedPrompt: prompt,
-            sourceURL: nil
-        )
-    }
 
     public func extractWords(
         from image: Data,

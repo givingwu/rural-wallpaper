@@ -1,8 +1,6 @@
-import CoreGraphics
 import Foundation
 
 public protocol AIProvider: Sendable {
-    func generateImage(prompt: String, size: CGSize) async throws -> GeneratedSourceImage
     func extractWords(from image: Data, countRange: ClosedRange<Int>) async throws -> [VocabularyItem]
     func analyzeImage(_ image: Data, display: DisplayTarget) async throws -> ImageAnalysis
     func evaluate(
@@ -62,34 +60,6 @@ public struct OpenAICompatibleProvider: AIProvider {
         self.config = config
         self.secretStore = secretStore
         self.httpClient = httpClient
-    }
-
-    public func generateImage(prompt: String, size: CGSize) async throws -> GeneratedSourceImage {
-        try requireCapability(.imageGeneration)
-
-        let request = ImageGenerationRequest(
-            model: config.model,
-            prompt: prompt,
-            size: "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))",
-            responseFormat: "b64_json"
-        )
-        let response = try await sendJSON(request, endpoint: "/images/generations")
-        let decoded: ImageGenerationResponse = try decodeJSON(response.data)
-
-        guard
-            let firstImage = decoded.data.first,
-            let encodedImage = firstImage.b64JSON,
-            let imageData = Data(base64Encoded: encodedImage)
-        else {
-            throw ProviderError.invalidResponse
-        }
-
-        return GeneratedSourceImage(
-            data: imageData,
-            prompt: prompt,
-            revisedPrompt: firstImage.revisedPrompt,
-            sourceURL: firstImage.url
-        )
     }
 
     public func extractWords(
@@ -339,20 +309,6 @@ public struct OpenAICompatibleProvider: AIProvider {
         只返回 JSON，格式为：
         {"result":{"readability":0.9,"sceneFit":0.9,"depthBelievability":0.9,"desktopCalmness":0.9,"wordRelevance":0.9,"noBadOcclusion":0.95,"textCorrectness":1.0,"notes":"..."}}
         """
-    }
-}
-
-private struct ImageGenerationRequest: Encodable {
-    var model: String
-    var prompt: String
-    var size: String
-    var responseFormat: String
-
-    private enum CodingKeys: String, CodingKey {
-        case model
-        case prompt
-        case size
-        case responseFormat = "response_format"
     }
 }
 

@@ -10,6 +10,11 @@ public struct WallpaperHarnessResult: Equatable, Sendable {
     }
 }
 
+public enum WallpaperCompositionMode: Equatable, Sendable {
+    case overlayWords
+    case cleanSourceImage
+}
+
 public struct WallpaperHarness: Sendable {
     private let sourceProvider: any SourceProvider
     private let aiProvider: any AIProvider
@@ -18,6 +23,7 @@ public struct WallpaperHarness: Sendable {
     private let desktopSetter: any DesktopWallpaperSetter
     private let historyStore: any HistoryStore
     private let outputDirectory: URL
+    private let compositionMode: WallpaperCompositionMode
     private let settings: AppSettings
 
     public init(
@@ -28,6 +34,7 @@ public struct WallpaperHarness: Sendable {
         desktopSetter: any DesktopWallpaperSetter,
         historyStore: any HistoryStore,
         outputDirectory: URL,
+        compositionMode: WallpaperCompositionMode = .overlayWords,
         settings: AppSettings = .default
     ) {
         self.sourceProvider = sourceProvider
@@ -37,6 +44,7 @@ public struct WallpaperHarness: Sendable {
         self.desktopSetter = desktopSetter
         self.historyStore = historyStore
         self.outputDirectory = outputDirectory
+        self.compositionMode = compositionMode
         self.settings = settings
     }
 
@@ -73,6 +81,26 @@ public struct WallpaperHarness: Sendable {
 
                 context.words = words
                 try machine.apply(.wordsExtracted)
+
+                if compositionMode == .cleanSourceImage {
+                    try machine.apply(.learningContentAccepted)
+                    try Task.checkCancellation()
+
+                    let fileURL = try writeSourceWallpaper(
+                        sourceImage.imageData,
+                        display: display
+                    )
+                    let record = context.makeSuccessRecord(finalImageURL: fileURL)
+
+                    try Task.checkCancellation()
+                    try desktopSetter.setWallpaper(fileURL: fileURL, for: display)
+                    try machine.apply(.wallpaperSet)
+
+                    try historyStore.append(record)
+                    try machine.apply(.historyRecorded)
+
+                    return WallpaperHarnessResult(state: .succeeded, record: record)
+                }
 
                 try Task.checkCancellation()
                 let analysis = try await aiProvider.analyzeImage(sourceImage.imageData, display: display)
@@ -212,6 +240,23 @@ public struct WallpaperHarness: Sendable {
         return fileURL
     }
 
+    private func writeSourceWallpaper(
+        _ imageData: Data,
+        display: DisplayTarget
+    ) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: outputDirectory,
+            withIntermediateDirectories: true
+        )
+
+        let fileURL = outputDirectory
+            .appendingPathComponent("\(safeFileComponent(display.id))-\(UUID().uuidString)")
+            .appendingPathExtension("jpg")
+        try imageData.write(to: fileURL, options: .atomic)
+
+        return fileURL
+    }
+
     private func sourceImageURL(from attribution: SourceAttribution) -> URL? {
         switch attribution {
         case .aiGenerated:
@@ -257,7 +302,13 @@ public struct WallpaperHarness: Sendable {
     }
 
     private func exhaustedFailureReason(from context: WallpaperHarnessContext) -> String {
-        let prefix = "No layout candidate passed after \(maxBackgroundAttempts) background attempt(s)."
+        let prefix: String
+        switch compositionMode {
+        case .overlayWords:
+            prefix = "No layout candidate passed after \(maxBackgroundAttempts) background attempt(s)."
+        case .cleanSourceImage:
+            prefix = "No source image produced a valid 3...5 word learning set after \(maxBackgroundAttempts) background attempt(s)."
+        }
 
         if let failureReason = context.failureReason {
             return "\(prefix) Last attempt: \(failureReason)"

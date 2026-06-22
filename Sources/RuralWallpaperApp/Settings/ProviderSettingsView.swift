@@ -14,6 +14,8 @@ struct ProviderSettingsView: View {
                 .textFieldStyle(.roundedBorder)
             SecureField("API Key", text: $draft.apiKey)
                 .textFieldStyle(.roundedBorder)
+            SecureField("Unsplash Access Key", text: $draft.unsplashAccessKey)
+                .textFieldStyle(.roundedBorder)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Headers")

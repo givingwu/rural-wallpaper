@@ -19,7 +19,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
                 baseURL: URL(string: "https://api.example.com/v1/")!,
                 model: "vision-model",
                 secretAccount: "probe",
-                capabilities: [.vision, .imageGeneration, .structuredOutput]
+                capabilities: [.vision, .structuredOutput]
             ),
             secretStore: secretStore,
             httpClient: httpClient
@@ -33,60 +33,13 @@ final class OpenAICompatibleProviderTests: XCTestCase {
 
         XCTAssertEqual(result.providerID, "test-provider")
         XCTAssertEqual(result.model, "vision-model")
-        XCTAssertEqual(result.capabilities, [.vision, .imageGeneration, .structuredOutput])
+        XCTAssertEqual(result.capabilities, [.vision, .structuredOutput])
         XCTAssertEqual(request.method, "POST")
         XCTAssertEqual(request.url.absoluteString, "https://api.example.com/v1/chat/completions")
         XCTAssertEqual(request.headers["Authorization"], "Bearer probe-secret")
         XCTAssertEqual(object["model"] as? String, "vision-model")
         XCTAssertFalse(bodyString.contains("probe-secret"))
         XCTAssertFalse(bodyString.localizedCaseInsensitiveContains("Bearer "))
-    }
-
-    func testGenerateImageBuildsAuthorizedRequestFromSecretAndSafeHeaders() async throws {
-        let secretStore = MockSecretStore([
-            (SecretRef(service: "RuralWallpaperTests", account: "image"), "secret-from-store")
-        ])
-        let imageData = Data("generated-image".utf8)
-        let httpClient = MockHTTPClient(responses: [
-            HTTPResponse(
-                statusCode: 200,
-                data: imageGenerationResponseJSON(
-                    base64Image: imageData.base64EncodedString(),
-                    revisedPrompt: "A revised quiet rural wallpaper prompt."
-                )
-            )
-        ])
-        let provider = OpenAICompatibleProvider(
-            config: try makeProviderConfig(
-                baseURL: URL(string: "https://api.example.com/v1/")!,
-                model: "image-model",
-                secretAccount: "image",
-                additionalHeaders: ["X-Provider-Org": "rural-tests"],
-                capabilities: [.imageGeneration]
-            ),
-            secretStore: secretStore,
-            httpClient: httpClient
-        )
-
-        let result = try await provider.generateImage(
-            prompt: "A quiet farm at sunrise",
-            size: CGSize(width: 1024, height: 768)
-        )
-
-        XCTAssertEqual(result.data, imageData)
-        XCTAssertEqual(result.revisedPrompt, "A revised quiet rural wallpaper prompt.")
-
-        let request = try XCTUnwrap(httpClient.requests.first)
-        XCTAssertEqual(request.method, "POST")
-        XCTAssertEqual(request.url.absoluteString, "https://api.example.com/v1/images/generations")
-        XCTAssertEqual(request.headers["Authorization"], "Bearer secret-from-store")
-        XCTAssertEqual(request.headers["X-Provider-Org"], "rural-tests")
-        XCTAssertEqual(request.headers["Content-Type"], "application/json")
-
-        let body = try decodedJSONObject(from: request)
-        XCTAssertEqual(body["model"] as? String, "image-model")
-        XCTAssertEqual(body["prompt"] as? String, "A quiet farm at sunrise")
-        XCTAssertEqual(body["size"] as? String, "1024x768")
     }
 
     func testExtractWordsJoinsBaseURLAndChatEndpointWhenEndpointHasLeadingSlash() async throws {
@@ -127,7 +80,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             config: try makeProviderConfig(
                 model: "image-only-model",
                 secretAccount: "no-vision",
-                capabilities: [.imageGeneration]
+                capabilities: []
             ),
             secretStore: secretStore,
             httpClient: httpClient
@@ -368,7 +321,7 @@ final class OpenAICompatibleProviderTests: XCTestCase {
             config: try makeProviderConfig(
                 model: "image-model",
                 secretAccount: "image-only",
-                capabilities: [.imageGeneration]
+                capabilities: []
             ),
             secretStore: secretStore,
             httpClient: httpClient
@@ -439,22 +392,6 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         let textPart = try XCTUnwrap(content.first { $0["type"] as? String == "text" })
 
         return try XCTUnwrap(textPart["text"] as? String)
-    }
-
-    private func imageGenerationResponseJSON(
-        base64Image: String,
-        revisedPrompt: String
-    ) -> Data {
-        let object: [String: Any] = [
-            "data": [
-                [
-                    "b64_json": base64Image,
-                    "revised_prompt": revisedPrompt
-                ]
-            ]
-        ]
-
-        return try! JSONSerialization.data(withJSONObject: object)
     }
 
     private func chatCompletionJSON(content: String) throws -> Data {

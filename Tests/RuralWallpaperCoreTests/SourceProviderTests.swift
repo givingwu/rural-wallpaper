@@ -1,82 +1,8 @@
-import CoreGraphics
 import Foundation
 import XCTest
 @testable import RuralWallpaperCore
 
 final class SourceProviderTests: XCTestCase {
-    func testAIImageSourceCallsProviderGenerateImageWithPromptAndDisplaySize() async throws {
-        let imageData = Data("ai-image".utf8)
-        let aiProvider = MockAIProvider(
-            generatedImage: GeneratedSourceImage(
-                data: imageData,
-                prompt: "provider prompt",
-                revisedPrompt: "revised prompt"
-            )
-        )
-        let source = AIImageSource(
-            provider: aiProvider,
-            providerID: "openai-compatible",
-            model: "image-model",
-            seedProvider: { display in "seed-\(display.id)" }
-        )
-        let settings = AppSettings(
-            autoUpdateEnabled: false,
-            refreshIntervalHours: 24,
-            maxBackgroundAttempts: 3,
-            maxLayoutCandidates: 5,
-            minimumScore: 0.75,
-            historyLimitPerDisplay: 30,
-            preferredThemes: ["rural", "mist"],
-            enabledDisplayIDs: []
-        )
-
-        let result = try await source.makeSourceImage(
-            for: makeDisplayTarget(pixelSize: PixelSize(width: 2880, height: 1800)),
-            settings: settings
-        )
-
-        XCTAssertEqual(result.imageData, imageData)
-        XCTAssertEqual(aiProvider.generateImageCalls.count, 1)
-
-        let call = try XCTUnwrap(aiProvider.generateImageCalls.first)
-        XCTAssertEqual(call.size, CGSize(width: 2880, height: 1800))
-        XCTAssertTrue(call.prompt.contains("rural"))
-        XCTAssertTrue(call.prompt.contains("mist"))
-        XCTAssertTrue(call.prompt.contains("2880x1800"))
-        XCTAssertTrue(call.prompt.localizedCaseInsensitiveContains("quiet desktop wallpaper"))
-        XCTAssertTrue(call.prompt.localizedCaseInsensitiveContains("no text"))
-        XCTAssertTrue(call.prompt.contains("seed-display-1"))
-
-        XCTAssertEqual(result.prompt, call.prompt)
-        XCTAssertEqual(
-            result.attribution,
-            .aiGenerated(
-                AIGeneratedAttribution(
-                    prompt: call.prompt,
-                    providerID: "openai-compatible",
-                    model: "image-model"
-                )
-            )
-        )
-    }
-
-    func testAIImageSourcePropagatesMissingImageGenerationCapability() async throws {
-        let aiProvider = MockAIProvider(error: ProviderError.missingCapability(.imageGeneration))
-        let source = AIImageSource(
-            provider: aiProvider,
-            providerID: "vision-only",
-            model: "vision-model",
-            seedProvider: { _ in "stable-seed" }
-        )
-
-        do {
-            _ = try await source.makeSourceImage(for: makeDisplayTarget(), settings: .default)
-            XCTFail("Expected missing image generation capability to throw")
-        } catch let error as ProviderError {
-            XCTAssertEqual(error, .missingCapability(.imageGeneration))
-        }
-    }
-
     func testUnsplashSourceBuildsRequestsDownloadsImageAndReturnsAttribution() async throws {
         let imageData = Data("unsplash-image".utf8)
         let httpClient = MockSourceHTTPClient(responses: [
@@ -165,21 +91,14 @@ final class SourceProviderTests: XCTestCase {
         )
     }
 
-    func testUnsplashSourceIsNotTheDefaultSource() {
-        let aiSource = AIImageSource(
-            provider: MockAIProvider(generatedImage: GeneratedSourceImage(data: Data(), prompt: "")),
-            providerID: "openai-compatible",
-            model: "image-model",
-            seedProvider: { _ in "seed" }
-        )
+    func testUnsplashSourceUsesDefaultWallpaperSourceID() {
         let unsplashSource = UnsplashSource(
             accessKey: "test-access-key",
             httpClient: MockSourceHTTPClient(responses: []),
             baseURL: URL(string: "https://api.unsplash.test")!
         )
 
-        XCTAssertEqual(aiSource.id, AIImageSource.defaultID)
-        XCTAssertNotEqual(unsplashSource.id, AIImageSource.defaultID)
+        XCTAssertEqual(unsplashSource.id, UnsplashSource.defaultID)
     }
 
     private func makeDisplayTarget(
@@ -229,43 +148,6 @@ final class SourceProviderTests: XCTestCase {
             .queryItems?
             .first { $0.name == name }?
             .value
-    }
-}
-
-private final class MockAIProvider: AIProvider, @unchecked Sendable {
-    private(set) var generateImageCalls: [(prompt: String, size: CGSize)] = []
-    private let generatedImage: GeneratedSourceImage?
-    private let error: Error?
-
-    init(generatedImage: GeneratedSourceImage? = nil, error: Error? = nil) {
-        self.generatedImage = generatedImage
-        self.error = error
-    }
-
-    func generateImage(prompt: String, size: CGSize) async throws -> GeneratedSourceImage {
-        generateImageCalls.append((prompt, size))
-
-        if let error {
-            throw error
-        }
-
-        return try XCTUnwrap(generatedImage)
-    }
-
-    func extractWords(from image: Data, countRange: ClosedRange<Int>) async throws -> [VocabularyItem] {
-        throw UnexpectedMockCall()
-    }
-
-    func analyzeImage(_ image: Data, display: DisplayTarget) async throws -> ImageAnalysis {
-        throw UnexpectedMockCall()
-    }
-
-    func evaluate(
-        renderedImage: Data,
-        plan: LayoutPlan,
-        words: [VocabularyItem]
-    ) async throws -> EvaluationResult {
-        throw UnexpectedMockCall()
     }
 }
 
