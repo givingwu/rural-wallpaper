@@ -27,6 +27,25 @@ public struct RenderedWallpaper: Equatable, Sendable {
     }
 }
 
+public struct RenderedGlassWallpaper: Equatable, Sendable {
+    public let pngData: Data
+    public let displayID: String
+    public let words: [VocabularyItem]
+    public let pixelSize: PixelSize
+
+    public init(
+        pngData: Data,
+        displayID: String,
+        words: [VocabularyItem],
+        pixelSize: PixelSize
+    ) {
+        self.pngData = pngData
+        self.displayID = displayID
+        self.words = words
+        self.pixelSize = pixelSize
+    }
+}
+
 public enum RenderError: Error, Equatable, LocalizedError, Sendable {
     case invalidBackgroundImage
     case invalidDisplaySize

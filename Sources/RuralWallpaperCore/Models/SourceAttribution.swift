@@ -34,7 +34,27 @@ public struct UnsplashAttribution: Codable, Equatable, Sendable {
     }
 }
 
+public struct LocalDesktopAttribution: Codable, Equatable, Sendable {
+    public var originalURL: URL
+    public var localFileURL: URL
+
+    public init(originalURL: URL, localFileURL: URL) {
+        self.originalURL = originalURL
+        self.localFileURL = localFileURL
+    }
+}
+
 public enum SourceAttribution: Codable, Equatable, Sendable {
     case aiGenerated(AIGeneratedAttribution)
     case unsplash(UnsplashAttribution)
+    case localDesktop(LocalDesktopAttribution)
+
+    public var localFileURL: URL? {
+        switch self {
+        case .aiGenerated, .unsplash:
+            return nil
+        case .localDesktop(let attribution):
+            return attribution.localFileURL
+        }
+    }
 }

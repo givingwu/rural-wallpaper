@@ -1,0 +1,134 @@
+import Foundation
+import XCTest
+@testable import RuralWallpaperCore
+
+final class CLIWordProviderTests: XCTestCase {
+    func testParsesVocabularyItemsFromJSONOutput() throws {
+        let output = """
+        {
+          "words": [
+            {
+              "word": "tranquil",
+              "partOfSpeech": "adjective",
+              "zhDefinition": "宁静的",
+              "example": "The desktop feels tranquil after sunset.",
+              "difficulty": 3,
+              "sourceReason": "The wallpaper has a calm evening mood."
+            },
+            {
+              "word": "ridge",
+              "partOfSpeech": "noun",
+              "zhDefinition": "山脊",
+              "example": "A ridge fades into the mist.",
+              "difficulty": 2,
+              "sourceReason": "The image contains distant mountains."
+            },
+            {
+              "word": "glow",
+              "partOfSpeech": "noun",
+              "zhDefinition": "微光",
+              "example": "A soft glow spreads across the sky.",
+              "difficulty": 2,
+              "sourceReason": "The wallpaper has warm light."
+            }
+          ]
+        }
+        """
+
+        let words = try CLIWordProvider.parseWords(from: output)
+
+        XCTAssertEqual(words.map(\.word), ["tranquil", "ridge", "glow"])
+        XCTAssertEqual(words.first?.zhDefinition, "宁静的")
+    }
+
+    func testParsesJSONInsideMarkdownFence() throws {
+        let output = """
+        Here is the JSON:
+
+        ```json
+        {
+          "words": [
+            {
+              "word": "meadow",
+              "partOfSpeech": "noun",
+              "zhDefinition": "草地",
+              "example": "The meadow looks fresh in the morning.",
+              "difficulty": 2,
+              "sourceReason": "The wallpaper shows open grass."
+            },
+            {
+              "word": "cottage",
+              "partOfSpeech": "noun",
+              "zhDefinition": "小屋",
+              "example": "A cottage stands near the trees.",
+              "difficulty": 2,
+              "sourceReason": "A small house appears in the scene."
+            },
+            {
+              "word": "mist",
+              "partOfSpeech": "noun",
+              "zhDefinition": "薄雾",
+              "example": "Mist softens the distant hills.",
+              "difficulty": 2,
+              "sourceReason": "The background looks hazy."
+            }
+          ]
+        }
+        ```
+        """
+
+        let words = try CLIWordProvider.parseWords(from: output)
+
+        XCTAssertEqual(words.map(\.word), ["meadow", "cottage", "mist"])
+    }
+
+    func testRejectsNonJSONOutputWithReadableError() {
+        XCTAssertThrowsError(
+            try CLIWordProvider.parseWords(from: "not json")
+        ) { error in
+            XCTAssertEqual(error as? CLIWordProviderError, .invalidJSON)
+        }
+    }
+
+    func testDefaultPathIncludesNVMNodeBinsFromHomeDirectory() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CLIWordProviderTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let nodeBinDirectory = tempDirectory
+            .appendingPathComponent(".nvm/versions/node/v22.21.0/bin", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: nodeBinDirectory,
+            withIntermediateDirectories: true
+        )
+        let nodeURL = nodeBinDirectory.appendingPathComponent("node")
+        try Data("#!/bin/sh\n".utf8).write(to: nodeURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: nodeURL.path
+        )
+
+        let path = CLIWordProvider.defaultPath(environment: [
+            "HOME": tempDirectory.path,
+            "PATH": "/usr/bin:/bin"
+        ])
+
+        let pathComponents = path
+            .split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).resolvingSymlinksInPath().path }
+        XCTAssertTrue(pathComponents.contains(nodeBinDirectory.resolvingSymlinksInPath().path))
+    }
+
+    func testCodexInvocationTerminatesImageArgumentsBeforePrompt() {
+        let imageURL = URL(fileURLWithPath: "/tmp/wallpaper.heic")
+        let prompt = "Return JSON only."
+        let provider = CLIWordProvider(command: .codex)
+
+        let invocation = provider.invocation(prompt: prompt, imageURL: imageURL)
+
+        let imageIndex = invocation.firstIndex(of: "--image")
+        XCTAssertEqual(imageIndex.map { invocation[invocation.index(after: $0)] }, imageURL.path)
+        XCTAssertTrue(invocation.contains("--"))
+        XCTAssertEqual(invocation.suffix(2), ["--", prompt])
+    }
+}

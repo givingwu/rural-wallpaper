@@ -261,6 +261,8 @@ public struct WallpaperHarness: Sendable {
         switch attribution {
         case .aiGenerated:
             return nil
+        case .localDesktop(let attribution):
+            return attribution.originalURL
         case .unsplash(let attribution):
             return attribution.sourceURL
         }

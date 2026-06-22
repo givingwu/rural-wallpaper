@@ -23,6 +23,96 @@ final class RenderEngineTests: XCTestCase {
         XCTAssertEqual(output.pixelsHigh, display.pixelSize.height)
     }
 
+    func testGlassOverlayRenderOutputsDisplaySizedWallpaperWithVisibleText() throws {
+        let display = makeDisplay(width: 640, height: 360)
+        let background = try makeSolidPNG(
+            width: 640,
+            height: 360,
+            color: NSColor(calibratedRed: 0.08, green: 0.14, blue: 0.18, alpha: 1)
+        )
+        let engine = CoreGraphicsRenderEngine()
+
+        let rendered = try engine.renderGlassOverlay(
+            background: background,
+            words: Array(realisticVocabularyItems().prefix(3)),
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+
+        XCTAssertEqual(rendered.displayID, display.id)
+        XCTAssertEqual(rendered.pixelSize, display.pixelSize)
+        XCTAssertEqual(rendered.words.map(\.word), ["meadow", "harvest", "orchard"])
+        XCTAssertEqual(output.pixelsWide, display.pixelSize.width)
+        XCTAssertEqual(output.pixelsHigh, display.pixelSize.height)
+        XCTAssertTrue(
+            containsReadableLightPixel(output),
+            "glass overlay should render readable but subtle light text"
+        )
+    }
+
+    func testGlassOverlayUsesDistributedEnglishOnlySubtleBadges() throws {
+        let canvas = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let engine = CoreGraphicsRenderEngine()
+        let words = Array(realisticVocabularyItems().prefix(5))
+
+        let badges = engine.makeGlassWordBadges(words: words, in: canvas)
+
+        XCTAssertEqual(badges.map(\.displayText), words.map(\.word))
+        XCTAssertEqual(badges.first?.role, .primary)
+        XCTAssertEqual(badges.dropFirst().map(\.role), Array(repeating: .secondary, count: 4))
+        XCTAssertTrue(badges.allSatisfy { !$0.displayText.containsCJKCharacters })
+        XCTAssertTrue(badges.allSatisfy { !($0.detailText ?? "").containsCJKCharacters })
+        XCTAssertTrue(badges.allSatisfy { $0.style.fillAlpha <= 0.12 })
+        XCTAssertTrue(badges.allSatisfy { $0.style.strokeAlpha <= 0.28 })
+        XCTAssertTrue(badges.allSatisfy { $0.style.textAlpha <= 0.82 })
+
+        let horizontalBands = Set(badges.map { Int(($0.rect.midX / canvas.width) * 3) })
+        let verticalBands = Set(badges.map { Int(($0.rect.midY / canvas.height) * 3) })
+        XCTAssertGreaterThanOrEqual(horizontalBands.count, 2)
+        XCTAssertGreaterThanOrEqual(verticalBands.count, 2)
+
+        for index in badges.indices {
+            for otherIndex in badges.indices where otherIndex > index {
+                XCTAssertFalse(
+                    badges[index].rect.insetBy(dx: -18, dy: -18)
+                        .intersects(badges[otherIndex].rect),
+                    "glass word badges should not visually cluster"
+                )
+            }
+        }
+    }
+
+    func testGlassOverlayDrawsPrimaryBadgeTextUpright() throws {
+        let display = makeDisplay(width: 900, height: 500)
+        let background = try makeSolidPNG(width: 900, height: 500, color: .black)
+        let engine = CoreGraphicsRenderEngine()
+        let words = [
+            makeVocabularyItem(word: "WIII", partOfSpeech: ""),
+            makeVocabularyItem(word: "plain", partOfSpeech: ""),
+            makeVocabularyItem(word: "ridge", partOfSpeech: "")
+        ]
+
+        let rendered = try engine.renderGlassOverlay(
+            background: background,
+            words: words,
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+        let primaryBadge = try XCTUnwrap(
+            engine.makeGlassWordBadges(
+                words: words,
+                in: CGRect(x: 0, y: 0, width: 900, height: 500)
+            ).first
+        )
+        let counts = try primaryGlyphStemCounts(in: output, badge: primaryBadge)
+
+        XCTAssertGreaterThan(
+            counts.left,
+            counts.right,
+            "An upright WIII has its wide glyph mass on the left; mirrored badge text moves it to the right."
+        )
+    }
+
     func testRenderedPNGContainsVisibleWordPixels() throws {
         let display = makeDisplay(width: 360, height: 220)
         let opacity = 0.98
@@ -437,10 +527,10 @@ final class RenderEngineTests: XCTestCase {
         ]
     }
 
-    private func makeVocabularyItem(word: String) -> VocabularyItem {
+    private func makeVocabularyItem(word: String, partOfSpeech: String = "noun") -> VocabularyItem {
         VocabularyItem(
             word: word,
-            partOfSpeech: "noun",
+            partOfSpeech: partOfSpeech,
             zhDefinition: "测试词",
             example: "The word fits a calm rural wallpaper.",
             difficulty: 2,
@@ -568,6 +658,120 @@ final class RenderEngineTests: XCTestCase {
         return false
     }
 
+    private func containsReadableLightPixel(_ image: NSBitmapImageRep) -> Bool {
+        for y in 0..<image.pixelsHigh {
+            for x in 0..<image.pixelsWide {
+                guard let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    continue
+                }
+
+                if color.redComponent > 0.58
+                    && color.greenComponent > 0.58
+                    && color.blueComponent > 0.58
+                    && color.alphaComponent > 0.6 {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    private func primaryGlyphStemCounts(
+        in image: NSBitmapImageRep,
+        badge: GlassWordBadge
+    ) throws -> (left: Int, right: Int) {
+        let rect = badge.rect.integral
+        let verticallyMirroredRect = CGRect(
+            x: rect.minX,
+            y: CGFloat(image.pixelsHigh) - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+        let horizontallyMirroredRect = CGRect(
+            x: CGFloat(image.pixelsWide) - rect.maxX,
+            y: rect.minY,
+            width: rect.width,
+            height: rect.height
+        )
+        let fullyMirroredRect = CGRect(
+            x: horizontallyMirroredRect.minX,
+            y: verticallyMirroredRect.minY,
+            width: rect.width,
+            height: rect.height
+        )
+        let bestRect = [rect, verticallyMirroredRect, horizontallyMirroredRect, fullyMirroredRect].max {
+            readablePixelCount(in: image, cropRect: $0)
+                < readablePixelCount(in: image, cropRect: $1)
+        } ?? rect
+        let glyphBounds = try XCTUnwrap(
+            readablePixelBounds(in: image, cropRect: bestRect),
+            "primary badge should contain readable glyph pixels"
+        )
+        let splitX = (glyphBounds.minX + glyphBounds.maxX) / 2
+        var leftCount = 0
+        var rightCount = 0
+
+        for y in glyphBounds.minY...glyphBounds.maxY {
+            for x in glyphBounds.minX...glyphBounds.maxX where isReadablePixel(image, x: x, y: y) {
+                if x <= splitX {
+                    leftCount += 1
+                } else {
+                    rightCount += 1
+                }
+            }
+        }
+
+        return (leftCount, rightCount)
+    }
+
+    private func readablePixelCount(in image: NSBitmapImageRep, cropRect: CGRect) -> Int {
+        var count = 0
+        for y in clampedYRange(cropRect, image: image) {
+            for x in clampedXRange(cropRect, image: image) where isReadablePixel(image, x: x, y: y) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
+    private func readablePixelBounds(
+        in image: NSBitmapImageRep,
+        cropRect: CGRect
+    ) -> PixelBounds? {
+        var bounds: PixelBounds?
+
+        for y in clampedYRange(cropRect, image: image) {
+            for x in clampedXRange(cropRect, image: image) where isReadablePixel(image, x: x, y: y) {
+                bounds = bounds?.expanded(toIncludeX: x, y: y)
+                    ?? PixelBounds(minX: x, minY: y, maxX: x, maxY: y)
+            }
+        }
+
+        return bounds
+    }
+
+    private func clampedXRange(_ rect: CGRect, image: NSBitmapImageRep) -> Range<Int> {
+        max(0, Int(rect.minX))..<min(image.pixelsWide, Int(rect.maxX))
+    }
+
+    private func clampedYRange(_ rect: CGRect, image: NSBitmapImageRep) -> Range<Int> {
+        max(0, Int(rect.minY))..<min(image.pixelsHigh, Int(rect.maxY))
+    }
+
+    private func isReadablePixel(_ image: NSBitmapImageRep, x: Int, y: Int) -> Bool {
+        let bitmapX = image.pixelsWide - 1 - x
+        guard (0..<image.pixelsWide).contains(bitmapX),
+              (0..<image.pixelsHigh).contains(y),
+              let color = image.colorAt(x: bitmapX, y: y)?.usingColorSpace(.deviceRGB) else {
+            return false
+        }
+
+        let luminance = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+        return luminance > 0.56 && color.alphaComponent > 0.6
+    }
+
     private func brightPixelBounds(in image: NSBitmapImageRep) -> PixelBounds? {
         var bounds: PixelBounds?
 
@@ -690,5 +894,16 @@ private extension CoreRect {
             && rect.maxX <= maxX
             && rect.minY >= minY
             && rect.maxY <= maxY
+    }
+}
+
+private extension String {
+    var containsCJKCharacters: Bool {
+        unicodeScalars.contains { scalar in
+            (0x4E00...0x9FFF).contains(Int(scalar.value))
+                || (0x3400...0x4DBF).contains(Int(scalar.value))
+                || (0x3040...0x30FF).contains(Int(scalar.value))
+                || (0xAC00...0xD7AF).contains(Int(scalar.value))
+        }
     }
 }
