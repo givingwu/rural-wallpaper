@@ -6,6 +6,7 @@
 .superpowers/
 
 # Xcode
+dist/
 build/
 DerivedData/
 *.xcodeproj/xcuserdata/
