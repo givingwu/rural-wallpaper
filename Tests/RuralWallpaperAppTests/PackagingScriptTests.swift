@@ -19,6 +19,7 @@ final class PackagingScriptTests: XCTestCase {
 
         let workflowSource = try String(contentsOf: workflow, encoding: .utf8)
         XCTAssertTrue(workflowSource.contains("scripts/package-macos.sh"))
+        XCTAssertTrue(workflowSource.contains("runs-on: macos-15"))
     }
 
     private func repositoryRoot() -> URL {
