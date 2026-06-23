@@ -110,13 +110,14 @@ Settings 采用单页 grouped 布局：
 
 ## 打包
 
-Release 构建：
+本地构建和打包：
 
 ```bash
 swift build -c release
+scripts/package-macos.sh "$(date +%Y%m%d-%H%M%S)"
 ```
 
-打包产物会放在 `dist/`：
+打包脚本会生成 `AppIcon.icns`，写入 `.app`，完成签名，并把产物放在 `dist/`：
 
 ```text
 RuralWallpaper-<timestamp>.app

@@ -110,13 +110,14 @@ If the CLI cannot find Node, check `Open Logs` and confirm the logged `cli.path`
 
 ## Packaging
 
-The release build command is:
+Build and package locally:
 
 ```bash
 swift build -c release
+scripts/package-macos.sh "$(date +%Y%m%d-%H%M%S)"
 ```
 
-Packaged apps are placed in `dist/` as:
+The packaging script generates `AppIcon.icns`, embeds it in the `.app`, signs the bundle, and writes artifacts to `dist/`:
 
 ```text
 RuralWallpaper-<timestamp>.app
