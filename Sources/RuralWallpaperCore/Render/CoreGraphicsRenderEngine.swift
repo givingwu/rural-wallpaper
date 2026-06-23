@@ -394,11 +394,9 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
 
         let textColor = color.usingColorSpace(.deviceRGB)?.cgColor ?? color.cgColor
         let ctFont = CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
-        // 离屏 bitmap 文本路径会反向显示文本 run，因此先反转输入再交给 CoreText。
-        let visualText = String(text.reversed())
         let attributedText = CFAttributedStringCreate(
             nil,
-            visualText as CFString,
+            text as CFString,
             [
                 kCTFontAttributeName: ctFont,
                 kCTForegroundColorAttributeName: textColor
@@ -410,12 +408,10 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
-        let lineWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
 
         let baselineY = rect.minY + max(0, (rect.height - ascent - descent) / 2) + descent
-        context.translateBy(x: rect.maxX, y: 0)
-        context.scaleBy(x: -1, y: 1)
-        context.textPosition = CGPoint(x: max(0, rect.width - lineWidth), y: baselineY)
+        context.textPosition = CGPoint(x: rect.minX, y: baselineY)
         CTLineDraw(line, context)
     }
 

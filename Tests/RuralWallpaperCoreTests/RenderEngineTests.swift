@@ -87,7 +87,7 @@ final class RenderEngineTests: XCTestCase {
         let background = try makeSolidPNG(width: 900, height: 500, color: .black)
         let engine = CoreGraphicsRenderEngine()
         let words = [
-            makeVocabularyItem(word: "WIII", partOfSpeech: ""),
+            makeVocabularyItem(word: "Fiiii", partOfSpeech: ""),
             makeVocabularyItem(word: "plain", partOfSpeech: ""),
             makeVocabularyItem(word: "ridge", partOfSpeech: "")
         ]
@@ -109,7 +109,7 @@ final class RenderEngineTests: XCTestCase {
         XCTAssertGreaterThan(
             counts.left,
             counts.right,
-            "An upright WIII has its wide glyph mass on the left; mirrored badge text moves it to the right."
+            "An upright Fiiii has its wide glyph mass on the left; reversed or mirrored badge text moves it to the right."
         )
     }
 
@@ -688,19 +688,7 @@ final class RenderEngineTests: XCTestCase {
             width: rect.width,
             height: rect.height
         )
-        let horizontallyMirroredRect = CGRect(
-            x: CGFloat(image.pixelsWide) - rect.maxX,
-            y: rect.minY,
-            width: rect.width,
-            height: rect.height
-        )
-        let fullyMirroredRect = CGRect(
-            x: horizontallyMirroredRect.minX,
-            y: verticallyMirroredRect.minY,
-            width: rect.width,
-            height: rect.height
-        )
-        let bestRect = [rect, verticallyMirroredRect, horizontallyMirroredRect, fullyMirroredRect].max {
+        let bestRect = [rect, verticallyMirroredRect].max {
             readablePixelCount(in: image, cropRect: $0)
                 < readablePixelCount(in: image, cropRect: $1)
         } ?? rect
@@ -761,10 +749,9 @@ final class RenderEngineTests: XCTestCase {
     }
 
     private func isReadablePixel(_ image: NSBitmapImageRep, x: Int, y: Int) -> Bool {
-        let bitmapX = image.pixelsWide - 1 - x
-        guard (0..<image.pixelsWide).contains(bitmapX),
+        guard (0..<image.pixelsWide).contains(x),
               (0..<image.pixelsHigh).contains(y),
-              let color = image.colorAt(x: bitmapX, y: y)?.usingColorSpace(.deviceRGB) else {
+              let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
             return false
         }
 
