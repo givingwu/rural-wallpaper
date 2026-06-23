@@ -5,7 +5,7 @@ struct GenerationSettingsView: View {
     @Binding var settings: AppSettings
 
     var body: some View {
-        Form {
+        VStack(alignment: .leading, spacing: 14) {
             Toggle("Auto Update", isOn: $settings.autoUpdateEnabled)
 
             Stepper(value: $settings.refreshIntervalHours, in: 1...168) {
@@ -32,8 +32,6 @@ struct GenerationSettingsView: View {
                 labeledValue("History Per Display", "\(settings.historyLimitPerDisplay)")
             }
         }
-        .formStyle(.grouped)
-        .padding(20)
     }
 
     private func labeledValue(_ label: String, _ value: String) -> some View {

@@ -121,6 +121,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var lastGeneratedWallpaperURLs: [URL] = []
     @Published private(set) var providerMode: ProviderMode = .mockPreview
     @Published private(set) var activeGlassPreview: GlassWallpaperPreview?
+    @Published private(set) var generationProgressMessage = "Ready"
     @Published var lastErrorMessage: String?
 
     private let settingsStore: any SettingsStore
@@ -136,6 +137,10 @@ final class AppContainer: ObservableObject {
 
     var logFileURL: URL {
         logger.logFileURL
+    }
+
+    var selectedPreviewDisplay: DisplayTarget? {
+        previewDisplay(from: displays)
     }
 
     init(
@@ -199,6 +204,18 @@ final class AppContainer: ObservableObject {
         logger.info("display.reload.begin")
         displays = displayProvider.currentDisplays()
         logger.info("display.reload.done count=\(displays.count)")
+    }
+
+    func selectPreviewDisplay(id displayID: String) {
+        guard displays.contains(where: { $0.id == displayID }) else {
+            logger.info("display.select.ignored missing=\(displayID)")
+            return
+        }
+
+        var nextSettings = settings
+        nextSettings.selectedPreviewDisplayID = displayID
+        saveGenerationSettings(nextSettings)
+        logger.info("display.select.done id=\(displayID)")
     }
 
     func saveGenerationSettings(_ newSettings: AppSettings) {
@@ -284,13 +301,15 @@ final class AppContainer: ObservableObject {
     @discardableResult
     private func generateGlassPreview(using sourceProvider: any SourceProvider) async throws -> GlassWallpaperPreview {
         logger.info("preview.begin")
+        generationProgressMessage = "Preparing display"
         do {
             let currentDisplays = displayProvider.currentDisplays()
             displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
-            guard let display = displays.first(where: \.isMain) ?? displays.first else {
+            guard let display = previewDisplay(from: displays) else {
                 throw AppContainerError.noDisplaysAvailable
             }
             logger.info("display.selected id=\(display.id) name=\(display.friendlyName) pixels=\(display.pixelSize.width)x\(display.pixelSize.height)")
+            try Task.checkCancellation()
 
             let previewDirectory = supportDirectory.appendingPathComponent("Previews", isDirectory: true)
             try FileManager.default.createDirectory(
@@ -299,11 +318,13 @@ final class AppContainer: ObservableObject {
             )
             logger.info("preview.directory path=\(previewDirectory.path)")
 
+            generationProgressMessage = "Reading wallpaper"
             logger.info("source.begin provider=\(sourceProvider.id)")
             let source = try await sourceProvider.makeSourceImage(
                 for: display,
                 settings: settings
             )
+            try Task.checkCancellation()
             let sourceURL = try source.attribution.localFileURL
                 ?? writePreviewData(
                     source.imageData,
@@ -317,20 +338,24 @@ final class AppContainer: ObservableObject {
                 ?? ""
             logger.info("source.done bytes=\(source.imageData.count) path=\(sourceURL.path)\(sourcePrompt)")
 
+            generationProgressMessage = "Extracting words"
             let wordProvider = currentPreviewWordProvider()
             logger.info("words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path)")
             let words = try await wordProvider.extractWords(from: sourceURL)
+            try Task.checkCancellation()
             guard (3...5).contains(words.count) else {
                 throw CLIWordProviderError.invalidWordCount(words.count)
             }
             logger.info("words.done count=\(words.count) words=\(words.map(\.word).joined(separator: ","))")
 
+            generationProgressMessage = "Rendering preview"
             logger.info("render.begin mode=glass")
             let rendered = try CoreGraphicsRenderEngine().renderGlassOverlay(
                 background: source.imageData,
                 words: words,
                 display: display
             )
+            try Task.checkCancellation()
             let previewURL = try writePreviewData(
                 rendered.pngData,
                 directory: previewDirectory,
@@ -350,9 +375,16 @@ final class AppContainer: ObservableObject {
             activeGlassPreview = preview
             lastGeneratedWallpaperURLs = [previewURL]
             lastErrorMessage = "Preview generated with \(words.count) word(s)."
+            generationProgressMessage = "Ready"
             logger.info("preview.done id=\(preview.id.uuidString)")
             return preview
+        } catch is CancellationError {
+            generationProgressMessage = "Cancelled"
+            lastErrorMessage = "Generation cancelled."
+            logger.info("preview.cancelled")
+            throw CancellationError()
         } catch {
+            generationProgressMessage = "Failed"
             logger.error("preview.failed error=\(Self.describe(error))")
             throw error
         }
@@ -567,6 +599,15 @@ final class AppContainer: ObservableObject {
         }
 
         return sourceDisplays.filter { settings.enabledDisplayIDs.contains($0.id) }
+    }
+
+    private func previewDisplay(from sourceDisplays: [DisplayTarget]) -> DisplayTarget? {
+        if let selectedDisplayID = settings.selectedPreviewDisplayID,
+           let selected = sourceDisplays.first(where: { $0.id == selectedDisplayID }) {
+            return selected
+        }
+
+        return sourceDisplays.first(where: \.isMain) ?? sourceDisplays.first
     }
 
     private func writePreviewData(

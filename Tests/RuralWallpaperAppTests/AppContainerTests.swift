@@ -214,7 +214,73 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(container.activeGlassPreview, preview)
         XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
         XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+        XCTAssertEqual(container.generationProgressMessage, "Ready")
         XCTAssertTrue(setter.calls.isEmpty)
+    }
+
+    @MainActor
+    func testGenerateGlassPreviewUsesSelectedPreviewDisplay() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let builtIn = makeDisplay(id: "built-in", isMain: true)
+        let external = makeDisplay(id: "studio-display", isMain: false)
+        var settings = AppSettings.default
+        settings.selectedPreviewDisplayID = external.id
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [builtIn, external]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview()
+
+        XCTAssertEqual(preview.display, external)
+    }
+
+    @MainActor
+    func testGenerateGlassPreviewFallsBackToMainDisplayWhenSelectedDisplayDisappears() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let builtIn = makeDisplay(id: "built-in", isMain: true)
+        let external = makeDisplay(id: "studio-display", isMain: false)
+        var settings = AppSettings.default
+        settings.selectedPreviewDisplayID = "missing-display"
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [external, builtIn]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview()
+
+        XCTAssertEqual(preview.display, builtIn)
+    }
+
+    @MainActor
+    func testSelectPreviewDisplayPersistsDisplayChoice() {
+        let builtIn = makeDisplay(id: "built-in", isMain: true)
+        let external = makeDisplay(id: "studio-display", isMain: false)
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [builtIn, external]),
+            userDefaults: userDefaults
+        )
+
+        container.selectPreviewDisplay(id: external.id)
+
+        XCTAssertEqual(container.settings.selectedPreviewDisplayID, external.id)
+        XCTAssertEqual(container.selectedPreviewDisplay?.id, external.id)
     }
 
     @MainActor
@@ -306,14 +372,14 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
     }
 
-    private func makeDisplay(id: String) -> DisplayTarget {
+    private func makeDisplay(id: String, isMain: Bool = true) -> DisplayTarget {
         DisplayTarget(
             id: id,
             frame: CoreRect(x: 0, y: 0, width: 1440, height: 900),
             pixelSize: PixelSize(width: 1440, height: 900),
             scale: 1,
             colorSpace: "sRGB",
-            isMain: true,
+            isMain: isMain,
             friendlyName: id
         )
     }

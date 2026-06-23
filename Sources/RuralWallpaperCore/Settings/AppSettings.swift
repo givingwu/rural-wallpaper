@@ -7,6 +7,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var historyLimitPerDisplay: Int
     public var preferredThemes: [String]
     public var enabledDisplayIDs: Set<String>
+    public var selectedPreviewDisplayID: String?
 
     public init(
         autoUpdateEnabled: Bool,
@@ -16,7 +17,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         minimumScore: Double,
         historyLimitPerDisplay: Int,
         preferredThemes: [String],
-        enabledDisplayIDs: Set<String>
+        enabledDisplayIDs: Set<String>,
+        selectedPreviewDisplayID: String? = nil
     ) {
         self.autoUpdateEnabled = autoUpdateEnabled
         self.refreshIntervalHours = refreshIntervalHours
@@ -26,6 +28,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.historyLimitPerDisplay = historyLimitPerDisplay
         self.preferredThemes = preferredThemes
         self.enabledDisplayIDs = enabledDisplayIDs
+        self.selectedPreviewDisplayID = selectedPreviewDisplayID
     }
 
     public static let `default` = AppSettings(
@@ -36,6 +39,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         minimumScore: 0.75,
         historyLimitPerDisplay: 30,
         preferredThemes: ["rural", "nature", "calm"],
-        enabledDisplayIDs: []
+        enabledDisplayIDs: [],
+        selectedPreviewDisplayID: nil
     )
 }

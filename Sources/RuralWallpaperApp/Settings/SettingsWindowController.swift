@@ -7,7 +7,7 @@ final class SettingsWindowController: NSWindowController {
         let hostingController = NSHostingController(rootView: SettingsView(container: container))
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Rural Wallpaper Settings"
-        window.setContentSize(NSSize(width: 680, height: 560))
+        window.setContentSize(NSSize(width: 760, height: 720))
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.center()
 

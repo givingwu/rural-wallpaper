@@ -40,6 +40,11 @@ public struct MenuBarState: Equatable, Sendable {
         recentErrorSummary = Self.summarize(message)
     }
 
+    public mutating func finishCancelled() {
+        isGenerating = false
+        recentErrorSummary = nil
+    }
+
     public mutating func setPaused(_ paused: Bool) {
         isPaused = paused
     }

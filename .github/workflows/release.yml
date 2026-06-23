@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test
+        run: swift test --quiet
+
+      - name: Build
+        run: swift build -c release
+
+      - name: Package app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          BUILD="$(date +%Y%m%d.%H%M%S)"
+          APP_NAME="RuralWallpaper-${GITHUB_REF_NAME}"
+          APP_PATH="dist/${APP_NAME}.app"
+          ZIP_PATH="dist/${APP_NAME}.zip"
+          BINARY_PATH="$(find .build -path '*/release/RuralWallpaperApp' -type f -print -quit)"
+
+          if [[ -z "${BINARY_PATH}" ]]; then
+            echo "Release binary not found."
+            exit 1
+          fi
+
+          mkdir -p "${APP_PATH}/Contents/MacOS" "${APP_PATH}/Contents/Resources"
+          cp "${BINARY_PATH}" "${APP_PATH}/Contents/MacOS/RuralWallpaperApp"
+          chmod +x "${APP_PATH}/Contents/MacOS/RuralWallpaperApp"
+
+          cat > "${APP_PATH}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>RuralWallpaperApp</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.ruralwallpaper.app</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>Rural Wallpaper</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${BUILD}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>14.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          plutil -lint "${APP_PATH}/Contents/Info.plist"
+          codesign --force --deep --sign - "${APP_PATH}"
+          codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+          ditto -c -k --keepParent "${APP_PATH}" "${ZIP_PATH}"
+
+          echo "APP_PATH=${APP_PATH}" >> "${GITHUB_ENV}"
+          echo "ZIP_PATH=${ZIP_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREVIOUS_TAG="$(git tag --sort=-version:refname | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)"
+          if [[ -n "${PREVIOUS_TAG}" ]]; then
+            RANGE="${PREVIOUS_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+
+          COMMITS="$(mktemp)"
+          git log --pretty=format:'%s (%h)' "${RANGE}" > "${COMMITS}"
+
+          write_group() {
+            local title="$1"
+            local pattern="$2"
+            local matches
+            matches="$(grep -E "${pattern}" "${COMMITS}" || true)"
+            if [[ -n "${matches}" ]]; then
+              echo "## ${title}" >> release-notes.md
+              echo "${matches}" | sed 's/^/- /' >> release-notes.md
+              echo "" >> release-notes.md
+            fi
+          }
+
+          {
+            echo "# Rural Wallpaper ${CURRENT_TAG}"
+            echo ""
+            if [[ -n "${PREVIOUS_TAG}" ]]; then
+              echo "Changes since ${PREVIOUS_TAG}."
+            else
+              echo "Initial tagged release."
+            fi
+            echo ""
+          } > release-notes.md
+
+          write_group "Features" '^feat(\(.+\))?:'
+          write_group "Fixes" '^fix(\(.+\))?:'
+          write_group "Documentation" '^docs(\(.+\))?:'
+          write_group "Tests" '^test(\(.+\))?:'
+          write_group "Build and Release" '^(build|ci)(\(.+\))?:'
+          write_group "Refactors" '^refactor(\(.+\))?:'
+          write_group "Maintenance" '^(chore|style|perf)(\(.+\))?:'
+
+          OTHER="$(grep -Ev '^(feat|fix|docs|test|build|ci|refactor|chore|style|perf)(\(.+\))?:' "${COMMITS}" || true)"
+          if [[ -n "${OTHER}" ]]; then
+            echo "## Other Changes" >> release-notes.md
+            echo "${OTHER}" | sed 's/^/- /' >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+
+          cat release-notes.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "${ZIP_PATH}" \
+            --title "Rural Wallpaper ${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md
