@@ -3,12 +3,16 @@ import Foundation
 struct MenuBarMenuModel: Equatable {
     static func sections(
         isGenerating: Bool,
-        hasLastPreview: Bool
+        hasLastPreview: Bool,
+        generateStatus: GenerateStatus,
+        now: Date = Date()
     ) -> [MenuBarMenuSection] {
+        let statusItems = statusSectionItems(
+            generateStatus: generateStatus,
+            isGenerating: isGenerating,
+            now: now
+        )
         var primaryItems: [MenuBarMenuItem] = []
-        if isGenerating {
-            primaryItems.append(MenuBarMenuItem(title: "Generating", role: .loading, isEnabled: false))
-        }
 
         primaryItems.append(contentsOf: [
             MenuBarMenuItem(title: "Select Display", role: .submenu, isEnabled: true),
@@ -21,6 +25,7 @@ struct MenuBarMenuModel: Equatable {
         }
 
         return [
+            MenuBarMenuSection(items: statusItems),
             MenuBarMenuSection(items: primaryItems),
             MenuBarMenuSection(items: [
                 MenuBarMenuItem(title: "Open Last Preview", role: .action, isEnabled: hasLastPreview),
@@ -31,6 +36,33 @@ struct MenuBarMenuModel: Equatable {
                 MenuBarMenuItem(title: "Quit", role: .action, isEnabled: true)
             ])
         ]
+    }
+
+    private static func statusSectionItems(
+        generateStatus: GenerateStatus,
+        isGenerating: Bool,
+        now: Date
+    ) -> [MenuBarMenuItem] {
+        var items = [
+            MenuBarMenuItem(title: "Generate Status", role: .statusHeader, isEnabled: false),
+            MenuBarMenuItem(
+                title: generateStatus.primaryLine(now: now),
+                role: isGenerating ? .loading : .statusDetail,
+                isEnabled: false
+            )
+        ]
+
+        if let sourceLine = generateStatus.sourceLine {
+            items.append(MenuBarMenuItem(title: sourceLine, role: .statusDetail, isEnabled: false))
+        }
+        if let targetLine = generateStatus.targetLine {
+            items.append(MenuBarMenuItem(title: targetLine, role: .statusDetail, isEnabled: false))
+        }
+        if !isGenerating, let previewLine = generateStatus.previewLine {
+            items.append(MenuBarMenuItem(title: previewLine, role: .statusDetail, isEnabled: false))
+        }
+
+        return items
     }
 }
 
@@ -43,6 +75,8 @@ struct MenuBarMenuItem: Equatable {
         case action
         case submenu
         case loading
+        case statusHeader
+        case statusDetail
     }
 
     var title: String

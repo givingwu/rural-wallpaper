@@ -12,6 +12,7 @@ Rural Wallpaper 是一个原生 macOS 菜单栏英语学习壁纸应用。它会
 - 使用本机 `codex` 或 `claude` CLI 识图并生成英文词。
 - 壁纸词牌显示英文词、中文词性和中文释义；例句和来源说明显示在预览右侧。
 - 支持多显示器预览目标选择。
+- 菜单顶部 `Generate Status` 展示当前阶段、耗时、图片来源、目标显示器和最近预览路径。
 - 先生成预览，再由用户确认 Apply。
 - 支持 `Auto Update & Apply`：按刷新间隔自动生成所选显示器的预览并自动应用。
 - 单页 grouped Settings：AI Provider、Display、Generation、Logs、About。
@@ -73,16 +74,18 @@ open dist/RuralWallpaper-*.app
 菜单操作：
 
 1. 点击菜单栏里的 Rural Wallpaper 图标。
-2. 如果有多个屏幕，先在 `Select Display` 里选择目标显示器。
-3. 点击 `Generate Preview` 或 `Choose Image...`。
-4. 在预览窗口检查壁纸和词卡。
-5. 点击 `Apply` 后才会替换所选显示器的壁纸。
+2. 先看 `Generate Status`，确认当前阶段、耗时、图片来源和目标显示器。
+3. 如果有多个屏幕，先在 `Select Display` 里选择目标显示器。
+4. 点击 `Generate Preview` 或 `Choose Image...`。
+5. 在预览窗口检查壁纸和词卡。
+6. 点击 `Apply` 后才会替换所选显示器的壁纸。
 
 菜单顺序：
 
-1. `Select Display`、`Choose Image`、`Generate Preview`
-2. `Open Last Preview`、`Open Logs`
-3. `Settings`、`Quit`
+1. `Generate Status`
+2. `Select Display`、`Choose Image`、`Generate Preview`
+3. `Open Last Preview`、`Open Logs`
+4. `Settings`、`Quit`
 
 快捷键：
 
@@ -123,6 +126,8 @@ Settings 采用单页 grouped 布局：
 
 CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读取 CLI 的 stdout/stderr，避免 Codex 进度输出写满 pipe 后卡死；日志会记录 `cli.exit durationSeconds=...` 或 `cli.timeout ...`。
 
+生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、目标显示器分辨率、预览文件名和词数。日志中的 source、file.write、CLI、render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
+
 ## 打包
 
 本地构建和打包：
@@ -158,4 +163,5 @@ git push origin v0.1.0
 - Codex 执行太久：打开日志查看 `cli.exit durationSeconds=...` 和 `stderrBytes=...`；超过 180 秒会自动停止本次生成并提示超时。
 - 预览效果异常：打开日志，查看最新的 `source`、`file.write`、`words` 和 `render` 阶段。
 - 手动生成后壁纸没有替换：手动流程是预览优先，需要点击 `Apply`；如果要自动替换，请开启 `Auto Update & Apply`。
+- 不确定用了哪张图片生成：先看菜单里的 `Generate Status`，或在日志中搜索最近的 `runID=...`。
 - 多显示器：生成前先确认菜单里的 `Select Display`。

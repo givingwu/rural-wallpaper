@@ -12,6 +12,7 @@ Rural Wallpaper is a native macOS menu bar app for English-learning wallpapers. 
 - Local AI CLI word extraction through `codex` or `claude`.
 - Wallpaper overlay shows English words plus compact Chinese part-of-speech and definition text.
 - Multi-display preview target selection.
+- Menu `Generate Status` area with live phase, elapsed time, source image, target display, and last preview path.
 - Preview-first apply flow: the desktop is changed only after clicking `Apply`.
 - Optional `Auto Update & Apply` flow that periodically generates a new preview from the selected display and applies it automatically.
 - Grouped Settings window for provider, display, generation, logs, and app information.
@@ -73,16 +74,18 @@ open dist/RuralWallpaper-*.app
 Menu workflow:
 
 1. Open the Rural Wallpaper menu bar icon.
-2. Pick a target display from `Select Display` if you have multiple screens.
-3. Click `Generate Preview` or `Choose Image...`.
-4. Review the generated wallpaper and word list.
-5. Click `Apply` to set the wallpaper for the selected display.
+2. Check `Generate Status` for the current phase, elapsed time, source image, and target display.
+3. Pick a target display from `Select Display` if you have multiple screens.
+4. Click `Generate Preview` or `Choose Image...`.
+5. Review the generated wallpaper and word list.
+6. Click `Apply` to set the wallpaper for the selected display.
 
 Menu order:
 
-1. `Select Display`, `Choose Image`, `Generate Preview`
-2. `Open Last Preview`, `Open Logs`
-3. `Settings`, `Quit`
+1. `Generate Status`
+2. `Select Display`, `Choose Image`, `Generate Preview`
+3. `Open Last Preview`, `Open Logs`
+4. `Settings`, `Quit`
 
 Shortcuts:
 
@@ -123,6 +126,8 @@ If the selected CLI itself is missing, the app shows a direct install reminder s
 
 CLI runs are capped at 180 seconds. The app continuously drains CLI stdout/stderr while it waits, then logs `cli.exit durationSeconds=...` or `cli.timeout ...` so stalled runs do not hang forever.
 
+During generation, `Generate Status` shows the current phase such as `Extracting words`, elapsed time, and the 180-second cap. After a run finishes, it shows whether the source was a screen wallpaper or chosen image, the exact source filename, the target display resolution, the preview filename, and the word count. Logs include a `runID=...` value on the detailed source, file write, CLI, render, preview, and apply lines for tracing one run end to end.
+
 ## Packaging
 
 Build and package locally:
@@ -156,5 +161,6 @@ The workflow tests the package, builds a release app, zips it, groups commits si
 - CLI exits with `node: not found`: install Node or make sure your shell manager path is visible in the logged CLI path.
 - Preview looks wrong: use `Open Logs` and inspect the latest `source`, `file.write`, `words`, and `render` lines.
 - Codex takes too long: inspect `cli.exit durationSeconds=...` and `stderrBytes=...` in `Open Logs`. Runs over 180 seconds are stopped and reported as a timeout.
+- Cannot tell which image was used: open the menu and check `Generate Status`, or search the latest matching `runID=...` in `Open Logs`.
 - Wallpaper was not replaced after manual generation: manual generation is preview-first; click `Apply`, or enable `Auto Update & Apply` for automatic replacement.
 - Multiple displays: confirm the target in `Select Display` before generating.

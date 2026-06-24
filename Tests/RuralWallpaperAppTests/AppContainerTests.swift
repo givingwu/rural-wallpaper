@@ -374,6 +374,7 @@ final class AppContainerTests: XCTestCase {
         let log = try String(contentsOf: logURL, encoding: .utf8)
         XCTAssertTrue(log.contains("source.done"))
         XCTAssertTrue(log.contains("prompt=test"))
+        XCTAssertTrue(log.contains("runID="))
         assertLogOrder(
             log,
             [
@@ -418,6 +419,70 @@ final class AppContainerTests: XCTestCase {
         XCTAssertNotEqual(preview.sourceImageURL, selectedImageURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
         XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+    }
+
+    @MainActor
+    func testGenerateStatusTracksSelectedImageSourceTargetAndPreview() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let selectedImageURL = tempDirectory.appendingPathComponent("beijing-night.png")
+        try makeTestPNG().write(to: selectedImageURL)
+        let display = makeDisplay(id: "studio-display")
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview(from: selectedImageURL)
+        let status = container.generateStatus
+
+        XCTAssertEqual(status.phase, .done)
+        XCTAssertEqual(status.source?.kind, .selectedImage)
+        XCTAssertEqual(status.source?.originalURL, selectedImageURL)
+        XCTAssertEqual(status.source?.workingURL, preview.sourceImageURL)
+        XCTAssertEqual(status.target?.displayName, "studio-display")
+        XCTAssertEqual(status.target?.pixelSize, PixelSize(width: 1440, height: 900))
+        XCTAssertEqual(status.previewURL, preview.previewImageURL)
+        XCTAssertEqual(status.wordCount, 3)
+        XCTAssertTrue(status.primaryLine(now: Date()).hasPrefix("Done · "))
+        XCTAssertEqual(status.sourceLine, "Source: Chosen image · beijing-night.png")
+        XCTAssertEqual(status.targetLine, "Target: studio-display · 1440x900")
+        XCTAssertEqual(status.previewLine, "Preview: \(preview.previewImageURL.lastPathComponent)")
+    }
+
+    @MainActor
+    func testGenerateStatusReportsCLITimeout() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: .default),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: FailingImageFileWordProvider(
+                error: CLIWordProviderError.commandTimedOut(command: .codex, timeoutSeconds: 180)
+            ),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        do {
+            _ = try await container.generateGlassPreview()
+            XCTFail("Expected timeout")
+        } catch CLIWordProviderError.commandTimedOut {
+            XCTAssertEqual(container.generateStatus.phase, .timedOut)
+            XCTAssertEqual(container.generateStatus.errorSummary, "Codex CLI")
+            XCTAssertEqual(container.generateStatus.primaryLine(now: Date()), "Timed out · Codex CLI · 03:00")
+            XCTAssertEqual(container.generateStatus.sourceLine, "Source: Generated image · test")
+            XCTAssertEqual(container.generateStatus.targetLine, "Target: built-in · 1440x900")
+        }
     }
 
     private func makeDisplay(id: String, isMain: Bool = true) -> DisplayTarget {
@@ -599,6 +664,14 @@ private struct StaticImageFileWordProvider: ImageFileWordProvider {
 
     func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
         words
+    }
+}
+
+private struct FailingImageFileWordProvider: ImageFileWordProvider {
+    var error: Error
+
+    func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
+        throw error
     }
 }
 

@@ -104,6 +104,11 @@ struct GlassWallpaperPreview: Equatable, Identifiable {
     }
 }
 
+private enum GenerateSourceIntent {
+    case screenWallpaper
+    case selectedImage(URL)
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     static let providerSecretRef = SecretRef(
@@ -122,6 +127,7 @@ final class AppContainer: ObservableObject {
     @Published private(set) var providerMode: ProviderMode = .mockPreview
     @Published private(set) var activeGlassPreview: GlassWallpaperPreview?
     @Published private(set) var generationProgressMessage = "Ready"
+    @Published private(set) var generateStatus = GenerateStatus.idle()
     @Published var lastErrorMessage: String?
 
     private let settingsStore: any SettingsStore
@@ -285,7 +291,11 @@ final class AppContainer: ObservableObject {
 
     @discardableResult
     func generateGlassPreview() async throws -> GlassWallpaperPreview {
-        try await generateGlassPreview(using: previewSourceProvider)
+        try await generateGlassPreview(
+            using: previewSourceProvider,
+            sourceIntent: .screenWallpaper,
+            mode: .manual
+        )
     }
 
     @discardableResult
@@ -295,7 +305,11 @@ final class AppContainer: ObservableObject {
             workspaceDirectory: supportDirectory
                 .appendingPathComponent("SelectedImages", isDirectory: true)
         )
-        return try await generateGlassPreview(using: source)
+        return try await generateGlassPreview(
+            using: source,
+            sourceIntent: .selectedImage(imageURL),
+            mode: .manual
+        )
     }
 
     @discardableResult
@@ -303,40 +317,66 @@ final class AppContainer: ObservableObject {
         logger.info("auto_update.begin enabled=\(settings.autoUpdateEnabled) refreshHours=\(settings.refreshIntervalHours)")
 
         do {
-            let preview = try await generateGlassPreview()
-            try applyGlassPreview(preview)
+            let preview = try await generateGlassPreview(
+                using: previewSourceProvider,
+                sourceIntent: .screenWallpaper,
+                mode: .automatic
+            )
+            try applyGlassPreview(preview, runID: generateStatus.runID)
             lastErrorMessage = "Auto update applied preview to \(preview.display.friendlyName)."
-            logger.info("auto_update.done preview=\(preview.id.uuidString) display=\(preview.display.id) path=\(preview.previewImageURL.path)")
+            logger.info("\(Self.runLogPrefix(generateStatus.runID))auto_update.done preview=\(preview.id.uuidString) display=\(preview.display.id) path=\(preview.previewImageURL.path)")
             return preview
         } catch {
-            logger.error("auto_update.failed error=\(Self.describe(error))")
+            logger.error("\(Self.runLogPrefix(generateStatus.runID))auto_update.failed error=\(Self.describe(error))")
             throw error
         }
     }
 
     @discardableResult
-    private func generateGlassPreview(using sourceProvider: any SourceProvider) async throws -> GlassWallpaperPreview {
-        logger.info("preview.begin sourceProvider=\(sourceProvider.id)")
+    private func generateGlassPreview(
+        using sourceProvider: any SourceProvider,
+        sourceIntent: GenerateSourceIntent,
+        mode: GenerateMode
+    ) async throws -> GlassWallpaperPreview {
+        let runID = Self.makeRunID()
+        let runLog = Self.runLogPrefix(runID)
+        logger.info("\(runLog)preview.begin mode=\(mode.logValue) sourceProvider=\(sourceProvider.id)")
         generationProgressMessage = "Preparing display"
+        generateStatus = GenerateStatus(
+            runID: runID,
+            phase: .preparingDisplay,
+            mode: mode,
+            startedAt: Date(),
+            finishedAt: nil,
+            timeoutSeconds: Self.previewTimeoutSeconds,
+            source: nil,
+            target: nil,
+            previewURL: nil,
+            wordCount: nil,
+            errorSummary: nil
+        )
         do {
             let currentDisplays = displayProvider.currentDisplays()
             displays = currentDisplays.isEmpty ? [Self.fallbackDisplay()] : currentDisplays
             guard let display = previewDisplay(from: displays) else {
                 throw AppContainerError.noDisplaysAvailable
             }
-            logger.info("display.selected id=\(display.id) name=\(display.friendlyName) pixels=\(display.pixelSize.width)x\(display.pixelSize.height)")
+            updateGenerateStatus { status in
+                status.target = GenerateTargetSummary(display: display)
+            }
+            logger.info("\(runLog)display.selected id=\(display.id) name=\(display.friendlyName) pixels=\(display.pixelSize.width)x\(display.pixelSize.height)")
             try Task.checkCancellation()
 
             let previewDirectory = supportDirectory.appendingPathComponent("Previews", isDirectory: true)
-            logger.info("preview.directory.create.begin path=\(previewDirectory.path)")
+            logger.info("\(runLog)preview.directory.create.begin path=\(previewDirectory.path)")
             try FileManager.default.createDirectory(
                 at: previewDirectory,
                 withIntermediateDirectories: true
             )
-            logger.info("preview.directory.create.done path=\(previewDirectory.path)")
+            logger.info("\(runLog)preview.directory.create.done path=\(previewDirectory.path)")
 
-            generationProgressMessage = "Reading wallpaper"
-            logger.info("source.begin provider=\(sourceProvider.id)")
+            setGeneratePhase(.readingSource, message: "Reading wallpaper")
+            logger.info("\(runLog)source.begin provider=\(sourceProvider.id)")
             let source = try await sourceProvider.makeSourceImage(
                 for: display,
                 settings: settings
@@ -348,26 +388,37 @@ final class AppContainer: ObservableObject {
                     directory: previewDirectory,
                     display: display,
                     prefix: "source",
-                    fileExtension: "png"
+                    fileExtension: "png",
+                    runID: runID
                 )
+            updateGenerateStatus { status in
+                status.source = Self.generateSourceSummary(
+                    from: source,
+                    sourceURL: sourceURL,
+                    intent: sourceIntent
+                )
+            }
             let sourcePrompt = source.prompt
                 .map { " prompt=\($0.replacingOccurrences(of: "\n", with: " "))" }
                 ?? ""
-            logger.info("source.image.read.done bytes=\(source.imageData.count) \(Self.sourceAttributionSummary(source.attribution))")
-            logger.info("source.done bytes=\(source.imageData.count) path=\(sourceURL.path)\(sourcePrompt)")
+            logger.info("\(runLog)source.image.read.done bytes=\(source.imageData.count) \(Self.sourceAttributionSummary(source.attribution))")
+            logger.info("\(runLog)source.done bytes=\(source.imageData.count) path=\(sourceURL.path)\(sourcePrompt)")
 
-            generationProgressMessage = "Extracting words"
-            let wordProvider = currentPreviewWordProvider()
-            logger.info("words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path)")
+            setGeneratePhase(.extractingWords, message: "Extracting words")
+            let wordProvider = currentPreviewWordProvider(runID: runID)
+            logger.info("\(runLog)words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path)")
             let words = try await wordProvider.extractWords(from: sourceURL)
             try Task.checkCancellation()
             guard (3...5).contains(words.count) else {
                 throw CLIWordProviderError.invalidWordCount(words.count)
             }
-            logger.info("words.done count=\(words.count) words=\(words.map(\.word).joined(separator: ","))")
+            updateGenerateStatus { status in
+                status.wordCount = words.count
+            }
+            logger.info("\(runLog)words.done count=\(words.count) words=\(words.map(\.word).joined(separator: ","))")
 
-            generationProgressMessage = "Rendering preview"
-            logger.info("render.begin mode=glass")
+            setGeneratePhase(.renderingPreview, message: "Rendering preview")
+            logger.info("\(runLog)render.begin mode=glass")
             let rendered = try CoreGraphicsRenderEngine().renderGlassOverlay(
                 background: source.imageData,
                 words: words,
@@ -379,50 +430,100 @@ final class AppContainer: ObservableObject {
                 directory: previewDirectory,
                 display: display,
                 prefix: "glass-preview",
-                fileExtension: "png"
+                fileExtension: "png",
+                runID: runID
             )
-            logger.info("render.done bytes=\(rendered.pngData.count) path=\(previewURL.path)")
+            logger.info("\(runLog)render.done bytes=\(rendered.pngData.count) path=\(previewURL.path)")
 
+            let finishedAt = Date()
             let preview = GlassWallpaperPreview(
                 display: display,
                 sourceImageURL: sourceURL,
                 previewImageURL: previewURL,
-                words: words
+                words: words,
+                createdAt: finishedAt
             )
 
             activeGlassPreview = preview
             lastGeneratedWallpaperURLs = [previewURL]
             lastErrorMessage = "Preview generated with \(words.count) word(s)."
             generationProgressMessage = "Ready"
-            logger.info("preview.done id=\(preview.id.uuidString)")
+            updateGenerateStatus { status in
+                status.phase = .done
+                status.finishedAt = finishedAt
+                status.previewURL = previewURL
+                status.wordCount = words.count
+                status.errorSummary = nil
+            }
+            logger.info("\(runLog)preview.done id=\(preview.id.uuidString)")
             return preview
         } catch is CancellationError {
             generationProgressMessage = "Cancelled"
             lastErrorMessage = "Generation cancelled."
-            logger.info("preview.cancelled")
+            updateGenerateStatus { status in
+                status.phase = .cancelled
+                status.finishedAt = Date()
+                status.errorSummary = nil
+            }
+            logger.info("\(runLog)preview.cancelled")
             throw CancellationError()
         } catch {
-            generationProgressMessage = "Failed"
-            logger.error("preview.failed error=\(Self.describe(error))")
+            if let timeout = Self.timeoutDetails(from: error) {
+                generationProgressMessage = "Timed out"
+                updateGenerateStatus { status in
+                    status.phase = .timedOut
+                    status.finishedAt = Date()
+                    status.timeoutSeconds = timeout.seconds
+                    status.errorSummary = timeout.summary
+                }
+            } else {
+                generationProgressMessage = "Failed"
+                updateGenerateStatus { status in
+                    status.phase = .failed
+                    status.finishedAt = Date()
+                    status.errorSummary = Self.describe(error)
+                }
+            }
+            logger.error("\(runLog)preview.failed error=\(Self.describe(error))")
             throw error
         }
     }
 
-    func applyGlassPreview(_ preview: GlassWallpaperPreview? = nil) throws {
-        logger.info("apply.begin")
+    func applyGlassPreview(_ preview: GlassWallpaperPreview? = nil, runID: String? = nil) throws {
+        let runID = runID ?? generateStatus.runID
+        let runLog = Self.runLogPrefix(runID)
+        logger.info("\(runLog)apply.begin")
         guard let preview = preview ?? activeGlassPreview else {
-            logger.error("apply.failed error=\(AppContainerError.noPreviewAvailable.localizedDescription)")
+            logger.error("\(runLog)apply.failed error=\(AppContainerError.noPreviewAvailable.localizedDescription)")
             throw AppContainerError.noPreviewAvailable
         }
 
         do {
-            logger.info("apply.wallpaper.set.begin path=\(preview.previewImageURL.path) display=\(preview.display.id) name=\(preview.display.friendlyName)")
+            setGeneratePhase(.applyingWallpaper, message: "Applying wallpaper")
+            updateGenerateStatus { status in
+                status.target = GenerateTargetSummary(display: preview.display)
+                status.previewURL = preview.previewImageURL
+                status.wordCount = preview.words.count
+            }
+            logger.info("\(runLog)apply.wallpaper.set.begin path=\(preview.previewImageURL.path) display=\(preview.display.id) name=\(preview.display.friendlyName)")
             try previewDesktopSetter.setWallpaper(fileURL: preview.previewImageURL, for: preview.display)
-            logger.info("apply.wallpaper.set.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
+            logger.info("\(runLog)apply.wallpaper.set.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
             lastErrorMessage = "Applied preview to \(preview.display.friendlyName)."
-            logger.info("apply.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
+            updateGenerateStatus { status in
+                status.phase = .done
+                status.finishedAt = Date()
+                status.errorSummary = nil
+            }
+            generationProgressMessage = "Ready"
+            logger.info("\(runLog)apply.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
         } catch {
-            logger.error("apply.failed error=\(Self.describe(error))")
+            updateGenerateStatus { status in
+                status.phase = .failed
+                status.finishedAt = Date()
+                status.errorSummary = Self.describe(error)
+            }
+            generationProgressMessage = "Failed"
+            logger.error("\(runLog)apply.failed error=\(Self.describe(error))")
             throw error
         }
     }
@@ -545,13 +646,91 @@ final class AppContainer: ObservableObject {
         return config
     }
 
-    private func currentPreviewWordProvider() -> any ImageFileWordProvider {
+    private func currentPreviewWordProvider(runID: String) -> any ImageFileWordProvider {
         previewWordProviderOverride ?? CLIWordProvider(
             command: providerSettings.cliCommand,
             logHandler: { [logger] message in
-                logger.info(message)
+                logger.info("\(Self.runLogPrefix(runID))\(message)")
             }
         )
+    }
+
+    private func setGeneratePhase(_ phase: GenerateStatusPhase, message: String) {
+        generationProgressMessage = message
+        updateGenerateStatus { status in
+            status.phase = phase
+        }
+    }
+
+    private func updateGenerateStatus(_ update: (inout GenerateStatus) -> Void) {
+        var nextStatus = generateStatus
+        update(&nextStatus)
+        generateStatus = nextStatus
+    }
+
+    private static let previewTimeoutSeconds: TimeInterval = 180
+
+    private static func makeRunID() -> String {
+        "gen-\(String(UUID().uuidString.prefix(8)))"
+    }
+
+    nonisolated private static func runLogPrefix(_ runID: String?) -> String {
+        guard let runID else {
+            return ""
+        }
+
+        return "runID=\(runID) "
+    }
+
+    private static func timeoutDetails(from error: Error) -> (summary: String, seconds: TimeInterval)? {
+        guard case CLIWordProviderError.commandTimedOut(let command, let timeoutSeconds) = error else {
+            return nil
+        }
+
+        return ("\(command.displayName) CLI", timeoutSeconds)
+    }
+
+    private static func generateSourceSummary(
+        from source: SourceImage,
+        sourceURL: URL,
+        intent: GenerateSourceIntent
+    ) -> GenerateSourceSummary {
+        let prompt = source.prompt
+
+        switch intent {
+        case .selectedImage(let imageURL):
+            return GenerateSourceSummary(
+                kind: .selectedImage,
+                originalURL: imageURL,
+                workingURL: sourceURL,
+                prompt: prompt
+            )
+        case .screenWallpaper:
+            switch source.attribution {
+            case .localDesktop(let attribution):
+                let isFallback = prompt?.hasPrefix("Current desktop wallpaper fallback") == true
+                return GenerateSourceSummary(
+                    kind: isFallback ? .fallbackWallpaper : .screenWallpaper,
+                    originalURL: attribution.originalURL,
+                    workingURL: sourceURL,
+                    prompt: prompt
+                )
+            case .aiGenerated:
+                return GenerateSourceSummary(
+                    kind: .generatedImage,
+                    originalURL: nil,
+                    workingURL: sourceURL,
+                    prompt: prompt
+                )
+            case .unsplash(let attribution):
+                return GenerateSourceSummary(
+                    kind: .unsplashPhoto,
+                    originalURL: attribution.sourceURL,
+                    workingURL: sourceURL,
+                    prompt: prompt
+                )
+            }
+        }
     }
 
     private static func loadProviderSettings(
@@ -635,16 +814,18 @@ final class AppContainer: ObservableObject {
         directory: URL,
         display: DisplayTarget,
         prefix: String,
-        fileExtension: String
+        fileExtension: String,
+        runID: String? = nil
     ) throws -> URL {
         let fileURL = directory
             .appendingPathComponent(
                 "\(prefix)-\(Self.safeFileComponent(display.id))-\(UUID().uuidString)"
             )
             .appendingPathExtension(fileExtension)
-        logger.info("file.write.begin prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
+        let runLog = Self.runLogPrefix(runID)
+        logger.info("\(runLog)file.write.begin prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
         try data.write(to: fileURL, options: .atomic)
-        logger.info("file.write.done prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
+        logger.info("\(runLog)file.write.done prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
         return fileURL
     }
 

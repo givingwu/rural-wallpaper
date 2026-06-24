@@ -11,6 +11,7 @@ final class MenuBarController: NSObject {
     private var state = MenuBarState()
     private var generationTask: Task<Void, Never>?
     private var automaticUpdateTask: Task<Void, Never>?
+    private var statusRefreshTask: Task<Void, Never>?
 
     init(container: AppContainer) {
         self.container = container
@@ -39,7 +40,8 @@ final class MenuBarController: NSObject {
         let menu = NSMenu()
         let sections = MenuBarMenuModel.sections(
             isGenerating: state.isGenerating,
-            hasLastPreview: lastPreviewURL != nil
+            hasLastPreview: lastPreviewURL != nil,
+            generateStatus: container.generateStatus
         )
 
         for sectionIndex in sections.indices {
@@ -57,7 +59,11 @@ final class MenuBarController: NSObject {
     private func menuItem(for descriptor: MenuBarMenuItem) -> NSMenuItem {
         switch descriptor.role {
         case .loading:
-            return loadingMenuItem()
+            return loadingMenuItem(title: descriptor.title)
+        case .statusHeader:
+            return statusHeaderMenuItem(title: descriptor.title)
+        case .statusDetail:
+            return statusDetailMenuItem(title: descriptor.title)
         case .submenu:
             let item = NSMenuItem(title: descriptor.title, action: nil, keyEquivalent: "")
             item.submenu = selectedDisplayMenu()
@@ -127,7 +133,7 @@ final class MenuBarController: NSObject {
         button.image?.isTemplate = true
     }
 
-    private func loadingMenuItem() -> NSMenuItem {
+    private func loadingMenuItem(title: String) -> NSMenuItem {
         let item = NSMenuItem()
         item.isEnabled = false
 
@@ -144,7 +150,7 @@ final class MenuBarController: NSObject {
         spinner.startAnimation(nil)
         spinner.setFrameSize(NSSize(width: 16, height: 16))
 
-        let label = NSTextField(labelWithString: statusTitle)
+        let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.textColor = .secondaryLabelColor
 
@@ -156,16 +162,31 @@ final class MenuBarController: NSObject {
         return item
     }
 
-    private var statusTitle: String {
-        if state.isGenerating {
-            return "Generating: \(container.generationProgressMessage)"
-        }
+    private func statusHeaderMenuItem(title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize),
+                .foregroundColor: NSColor.labelColor
+            ]
+        )
+        return item
+    }
 
-        if container.generationProgressMessage == "Cancelled" {
-            return "Cancelled"
-        }
-
-        return state.statusTitle == "Idle" ? "Ready" : state.statusTitle
+    private func statusDetailMenuItem(title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.indentationLevel = 1
+        item.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        )
+        return item
     }
 
     private var lastPreviewURL: URL? {
@@ -239,6 +260,7 @@ final class MenuBarController: NSObject {
         }
 
         rebuildMenu()
+        startStatusRefreshTimer()
         generationTask = Task { @MainActor in
             do {
                 _ = try await operation()
@@ -252,6 +274,7 @@ final class MenuBarController: NSObject {
                 state.finishWithFailure(message)
             }
 
+            stopStatusRefreshTimer()
             generationTask = nil
             rebuildMenu()
         }
@@ -283,6 +306,7 @@ final class MenuBarController: NSObject {
         }
 
         rebuildMenu()
+        startStatusRefreshTimer()
         generationTask = Task { @MainActor in
             do {
                 _ = try await container.runAutomaticPreviewUpdate()
@@ -295,6 +319,7 @@ final class MenuBarController: NSObject {
                 state.finishWithFailure(message)
             }
 
+            stopStatusRefreshTimer()
             generationTask = nil
             rebuildMenu()
         }
@@ -337,7 +362,27 @@ final class MenuBarController: NSObject {
         NSApplication.shared.terminate(nil)
     }
 
+    private func startStatusRefreshTimer() {
+        statusRefreshTask?.cancel()
+        statusRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                self?.rebuildMenu()
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    break
+                }
+            }
+        }
+    }
+
+    private func stopStatusRefreshTimer() {
+        statusRefreshTask?.cancel()
+        statusRefreshTask = nil
+    }
+
     deinit {
+        statusRefreshTask?.cancel()
         automaticUpdateTask?.cancel()
     }
 }
