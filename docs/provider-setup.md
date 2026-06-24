@@ -46,4 +46,5 @@ CLI 必须返回 JSON，格式如下：
 - App 不保存 AI API Key。
 - 真实鉴权由 `codex` 或 `claude` CLI 自己管理。
 - GUI App 从 Finder 启动时不会读取你的 shell rc 文件。App 会自动补充常见 CLI / Node 路径，包括 `~/.nvm/versions/node/*/bin`、`~/.volta/bin`、`~/.asdf/shims`、`~/.mise/shims`、`~/.local/share/pnpm`、`~/.local/bin`、`/opt/homebrew/bin` 和 `/usr/local/bin`。
+- 如果所选 CLI 未安装，App 会在启动进程前提示 `未安装 Codex CLI` 或 `未安装 Claude Code CLI`，并要求先安装和登录。
 - 如果日志出现 `exec: node: not found`，优先检查 `Open Logs` 中的 `cli.path` 是否包含实际 `node` 所在目录。
