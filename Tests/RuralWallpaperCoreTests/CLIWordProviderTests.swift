@@ -154,4 +154,87 @@ final class CLIWordProviderTests: XCTestCase {
             )
         )
     }
+
+    func testCodexRunnerDrainsLargeStderrWhileWaitingForOutput() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try writeExecutable(
+            named: "codex",
+            in: tempDirectory,
+            script: """
+            #!/bin/sh
+            i=0
+            while [ "$i" -lt 2500 ]; do
+              printf 'codex progress line %04d abcdefghijklmnopqrstuvwxyz0123456789\\n' "$i" >&2
+              i=$((i + 1))
+            done
+            cat <<'JSON'
+            {"words":[{"word":"meadow","partOfSpeech":"noun","zhDefinition":"草地","example":"The meadow is calm.","difficulty":2,"sourceReason":"The image shows grass."},{"word":"ridge","partOfSpeech":"noun","zhDefinition":"山脊","example":"A ridge fades away.","difficulty":2,"sourceReason":"The image has hills."},{"word":"glow","partOfSpeech":"noun","zhDefinition":"微光","example":"A glow lights the scene.","difficulty":2,"sourceReason":"The image has light."}]}
+            JSON
+            """
+        )
+        let imageURL = tempDirectory.appendingPathComponent("image.png")
+        try Data("image".utf8).write(to: imageURL)
+        let provider = CLIWordProvider(
+            command: .codex,
+            environment: [
+                "PATH": tempDirectory.path,
+                "HOME": tempDirectory.path
+            ],
+            timeoutSeconds: 5
+        )
+
+        let words = try await provider.extractWords(from: imageURL)
+
+        XCTAssertEqual(words.map(\.word), ["meadow", "ridge", "glow"])
+    }
+
+    func testCodexRunnerTimesOutAndReportsReadableError() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try writeExecutable(
+            named: "codex",
+            in: tempDirectory,
+            script: """
+            #!/bin/sh
+            sleep 2
+            """
+        )
+        let imageURL = tempDirectory.appendingPathComponent("image.png")
+        try Data("image".utf8).write(to: imageURL)
+        let provider = CLIWordProvider(
+            command: .codex,
+            environment: [
+                "PATH": tempDirectory.path,
+                "HOME": tempDirectory.path
+            ],
+            timeoutSeconds: 0.1
+        )
+
+        do {
+            _ = try await provider.extractWords(from: imageURL)
+            XCTFail("Expected timeout")
+        } catch {
+            XCTAssertEqual(
+                error as? CLIWordProviderError,
+                .commandTimedOut(command: .codex, timeoutSeconds: 0.1)
+            )
+        }
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CLIWordProviderProcessTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeExecutable(named name: String, in directory: URL, script: String) throws {
+        let url = directory.appendingPathComponent(name)
+        try Data(script.utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
+    }
 }

@@ -121,6 +121,8 @@ Settings 采用单页 grouped 布局：
 
 如果所选 CLI 本身未安装，应用会直接提示，例如：`未安装 Codex CLI。请先安装并登录 codex，然后重试。`
 
+CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读取 CLI 的 stdout/stderr，避免 Codex 进度输出写满 pipe 后卡死；日志会记录 `cli.exit durationSeconds=...` 或 `cli.timeout ...`。
+
 ## 打包
 
 本地构建和打包：
@@ -153,6 +155,7 @@ git push origin v0.1.0
 - 当前壁纸源文件不存在：应用会在同目录选择最新可读图片作为兜底，并写入日志。
 - CLI 报 `node: not found`：安装 Node，或确认 shell manager 的路径已出现在日志中的 `cli.path`。
 - CLI 未安装：安装并登录所选 CLI，例如 `codex` 或 `claude`。
+- Codex 执行太久：打开日志查看 `cli.exit durationSeconds=...` 和 `stderrBytes=...`；超过 180 秒会自动停止本次生成并提示超时。
 - 预览效果异常：打开日志，查看最新的 `source`、`file.write`、`words` 和 `render` 阶段。
 - 手动生成后壁纸没有替换：手动流程是预览优先，需要点击 `Apply`；如果要自动替换，请开启 `Auto Update & Apply`。
 - 多显示器：生成前先确认菜单里的 `Select Display`。

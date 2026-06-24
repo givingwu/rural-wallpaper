@@ -29,6 +29,13 @@
 3. 如果 CLI 未安装，确认错误文案明确提示 `未安装 Codex CLI` 或 `未安装 Claude Code CLI`。
 4. 确认菜单栏状态显示失败摘要，Preview 不会自动 Apply。
 
+## CLI Timeout
+
+1. 使用会长时间不返回的本地 CLI 命令，或临时断开网络后点击 `Generate Preview`。
+2. 等待超时后确认 App 显示超时错误，不会无限停留在 Generating。
+3. 打开 `Open Logs`，确认出现 `cli.timeout command=... timeoutSeconds=180`。
+4. 确认再次点击 `Generate Preview` 可以启动新一轮生成。
+
 ## Auto Update & Apply
 
 1. 打开 `Settings -> Generation`。

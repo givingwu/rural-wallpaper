@@ -48,3 +48,4 @@ CLI 必须返回 JSON，格式如下：
 - GUI App 从 Finder 启动时不会读取你的 shell rc 文件。App 会自动补充常见 CLI / Node 路径，包括 `~/.nvm/versions/node/*/bin`、`~/.volta/bin`、`~/.asdf/shims`、`~/.mise/shims`、`~/.local/share/pnpm`、`~/.local/bin`、`/opt/homebrew/bin` 和 `/usr/local/bin`。
 - 如果所选 CLI 未安装，App 会在启动进程前提示 `未安装 Codex CLI` 或 `未安装 Claude Code CLI`，并要求先安装和登录。
 - 如果日志出现 `exec: node: not found`，优先检查 `Open Logs` 中的 `cli.path` 是否包含实际 `node` 所在目录。
+- 如果 Codex 长时间没有返回，App 会在 180 秒后停止该 CLI 子进程。日志中的 `cli.exit durationSeconds=... stdoutBytes=... stderrBytes=...` 可用于判断耗时和输出量；`cli.timeout` 表示本次已被主动终止。

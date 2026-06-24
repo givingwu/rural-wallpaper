@@ -121,6 +121,8 @@ If the CLI cannot find Node, check `Open Logs` and confirm the logged `cli.path`
 
 If the selected CLI itself is missing, the app shows a direct install reminder such as `未安装 Codex CLI。请先安装并登录 codex，然后重试。`
 
+CLI runs are capped at 180 seconds. The app continuously drains CLI stdout/stderr while it waits, then logs `cli.exit durationSeconds=...` or `cli.timeout ...` so stalled runs do not hang forever.
+
 ## Packaging
 
 Build and package locally:
@@ -153,5 +155,6 @@ The workflow tests the package, builds a release app, zips it, groups commits si
 - Missing current wallpaper file: the app searches the same directory for the newest readable image and logs the fallback.
 - CLI exits with `node: not found`: install Node or make sure your shell manager path is visible in the logged CLI path.
 - Preview looks wrong: use `Open Logs` and inspect the latest `source`, `file.write`, `words`, and `render` lines.
+- Codex takes too long: inspect `cli.exit durationSeconds=...` and `stderrBytes=...` in `Open Logs`. Runs over 180 seconds are stopped and reported as a timeout.
 - Wallpaper was not replaced after manual generation: manual generation is preview-first; click `Apply`, or enable `Auto Update & Apply` for automatic replacement.
 - Multiple displays: confirm the target in `Select Display` before generating.
