@@ -50,7 +50,7 @@ final class RenderEngineTests: XCTestCase {
         )
     }
 
-    func testGlassOverlayUsesDistributedEnglishOnlySubtleBadges() throws {
+    func testGlassOverlayUsesDistributedBadgesWithChineseDefinitions() throws {
         let canvas = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let engine = CoreGraphicsRenderEngine()
         let words = Array(realisticVocabularyItems().prefix(5))
@@ -58,10 +58,14 @@ final class RenderEngineTests: XCTestCase {
         let badges = engine.makeGlassWordBadges(words: words, in: canvas)
 
         XCTAssertEqual(badges.map(\.displayText), words.map(\.word))
+        XCTAssertEqual(
+            badges.map(\.detailText),
+            Array(repeating: "名词 · 测试词", count: 5)
+        )
         XCTAssertEqual(badges.first?.role, .primary)
         XCTAssertEqual(badges.dropFirst().map(\.role), Array(repeating: .secondary, count: 4))
         XCTAssertTrue(badges.allSatisfy { !$0.displayText.containsCJKCharacters })
-        XCTAssertTrue(badges.allSatisfy { !($0.detailText ?? "").containsCJKCharacters })
+        XCTAssertTrue(badges.allSatisfy { ($0.detailText ?? "").containsCJKCharacters })
         XCTAssertTrue(badges.allSatisfy { $0.style.fillAlpha <= 0.12 })
         XCTAssertTrue(badges.allSatisfy { $0.style.strokeAlpha <= 0.28 })
         XCTAssertTrue(badges.allSatisfy { $0.style.textAlpha <= 0.82 })

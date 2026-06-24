@@ -207,7 +207,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
             let role: GlassWordBadgeRole = index == 0 ? .primary : .secondary
             let fontSize = role == .primary ? primaryFontSize : secondaryFontSize
             let displayText = englishOnlyText(item.word)
-            let detailText = role == .primary ? englishOnlyDetail(item.partOfSpeech) : nil
+            let detailText = localizedDetailText(for: item)
             let style = GlassWordBadgeStyle(
                 fontSize: fontSize,
                 fillAlpha: role == .primary ? 0.105 : 0.075,
@@ -249,11 +249,22 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 withAttributes: [.font: NSFont.systemFont(ofSize: style.fontSize, weight: weight)]
             ).width
         )
+        let detailFontSize = glassBadgeDetailFontSize(role: role, style: style)
+        let detailWidth = detailText.map {
+            ceil(
+                ($0 as NSString).size(
+                    withAttributes: [
+                        .font: NSFont.systemFont(ofSize: detailFontSize, weight: .medium)
+                    ]
+                ).width
+            )
+        } ?? 0
         let horizontalPadding = role == .primary ? style.fontSize * 0.42 : style.fontSize * 0.52
-        let minWidth = role == .primary ? canvas.width * 0.15 : canvas.width * 0.085
-        let maxWidth = role == .primary ? canvas.width * 0.36 : canvas.width * 0.24
-        let width = min(max(textWidth + horizontalPadding * 2, minWidth), maxWidth)
-        let detailHeight = detailText == nil ? 0 : style.fontSize * 0.34
+        let minWidth = role == .primary ? canvas.width * 0.18 : canvas.width * 0.11
+        let maxWidth = role == .primary ? canvas.width * 0.42 : canvas.width * 0.30
+        let contentWidth = max(textWidth, detailWidth)
+        let width = min(max(contentWidth + horizontalPadding * 2, minWidth), maxWidth)
+        let detailHeight = detailText == nil ? 0 : detailFontSize * 1.18
         let verticalPadding = role == .primary ? style.fontSize * 0.25 : style.fontSize * 0.22
         let height = ceil(style.fontSize * 1.04 + detailHeight + verticalPadding * 2)
         let rawX = canvas.minX + canvas.width * slot.x
@@ -270,9 +281,57 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         return value.isEmpty ? "word" : value
     }
 
-    private func englishOnlyDetail(_ text: String) -> String? {
-        let value = englishOnlyText(text).lowercased()
-        return value == "word" ? nil : value
+    private func localizedDetailText(for item: VocabularyItem) -> String? {
+        let definition = item.zhDefinition
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let partOfSpeech = localizedPartOfSpeech(item.partOfSpeech)
+
+        switch (partOfSpeech, definition.isEmpty ? nil : definition) {
+        case let (partOfSpeech?, definition?):
+            return "\(partOfSpeech) · \(definition)"
+        case let (partOfSpeech?, nil):
+            return partOfSpeech
+        case let (nil, definition?):
+            return definition
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private func localizedPartOfSpeech(_ value: String) -> String? {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        if normalized.contains("noun") || normalized == "n" || normalized == "n." {
+            return "名词"
+        }
+        if normalized.contains("verb") || normalized == "v" || normalized == "v." {
+            return "动词"
+        }
+        if normalized.contains("adjective") || normalized == "adj" || normalized == "adj." {
+            return "形容词"
+        }
+        if normalized.contains("adverb") || normalized == "adv" || normalized == "adv." {
+            return "副词"
+        }
+        if normalized.contains("preposition") || normalized == "prep" || normalized == "prep." {
+            return "介词"
+        }
+        if normalized.contains("conjunction") || normalized == "conj" || normalized == "conj." {
+            return "连词"
+        }
+        if normalized.contains("pronoun") || normalized == "pron" || normalized == "pron." {
+            return "代词"
+        }
+        if normalized.contains("interjection") || normalized == "interj" || normalized == "interj." {
+            return "感叹词"
+        }
+
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func drawGlassWordBadges(
@@ -360,13 +419,28 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 width: badge.rect.width - horizontalPadding * 2,
                 height: badge.style.fontSize * 0.42
             ),
-            font: .systemFont(ofSize: max(11, badge.style.fontSize * 0.28), weight: .medium),
+            font: .systemFont(
+                ofSize: glassBadgeDetailFontSize(role: badge.role, style: badge.style),
+                weight: .medium
+            ),
             color: NSColor.white.withAlphaComponent(badge.style.textAlpha * 0.58),
             shadowAlpha: badge.style.shadowAlpha,
             shadowBlur: 7,
             shadowOffset: CGSize(width: 0, height: 1),
             context: context
         )
+    }
+
+    private func glassBadgeDetailFontSize(
+        role: GlassWordBadgeRole,
+        style: GlassWordBadgeStyle
+    ) -> CGFloat {
+        switch role {
+        case .primary:
+            return max(13, style.fontSize * 0.28)
+        case .secondary:
+            return max(10, style.fontSize * 0.30)
+        }
     }
 
     private func drawCoreTextLine(
