@@ -299,8 +299,24 @@ final class AppContainer: ObservableObject {
     }
 
     @discardableResult
+    func runAutomaticPreviewUpdate() async throws -> GlassWallpaperPreview {
+        logger.info("auto_update.begin enabled=\(settings.autoUpdateEnabled) refreshHours=\(settings.refreshIntervalHours)")
+
+        do {
+            let preview = try await generateGlassPreview()
+            try applyGlassPreview(preview)
+            lastErrorMessage = "Auto update applied preview to \(preview.display.friendlyName)."
+            logger.info("auto_update.done preview=\(preview.id.uuidString) display=\(preview.display.id) path=\(preview.previewImageURL.path)")
+            return preview
+        } catch {
+            logger.error("auto_update.failed error=\(Self.describe(error))")
+            throw error
+        }
+    }
+
+    @discardableResult
     private func generateGlassPreview(using sourceProvider: any SourceProvider) async throws -> GlassWallpaperPreview {
-        logger.info("preview.begin")
+        logger.info("preview.begin sourceProvider=\(sourceProvider.id)")
         generationProgressMessage = "Preparing display"
         do {
             let currentDisplays = displayProvider.currentDisplays()
@@ -312,11 +328,12 @@ final class AppContainer: ObservableObject {
             try Task.checkCancellation()
 
             let previewDirectory = supportDirectory.appendingPathComponent("Previews", isDirectory: true)
+            logger.info("preview.directory.create.begin path=\(previewDirectory.path)")
             try FileManager.default.createDirectory(
                 at: previewDirectory,
                 withIntermediateDirectories: true
             )
-            logger.info("preview.directory path=\(previewDirectory.path)")
+            logger.info("preview.directory.create.done path=\(previewDirectory.path)")
 
             generationProgressMessage = "Reading wallpaper"
             logger.info("source.begin provider=\(sourceProvider.id)")
@@ -336,6 +353,7 @@ final class AppContainer: ObservableObject {
             let sourcePrompt = source.prompt
                 .map { " prompt=\($0.replacingOccurrences(of: "\n", with: " "))" }
                 ?? ""
+            logger.info("source.image.read.done bytes=\(source.imageData.count) \(Self.sourceAttributionSummary(source.attribution))")
             logger.info("source.done bytes=\(source.imageData.count) path=\(sourceURL.path)\(sourcePrompt)")
 
             generationProgressMessage = "Extracting words"
@@ -398,7 +416,9 @@ final class AppContainer: ObservableObject {
         }
 
         do {
+            logger.info("apply.wallpaper.set.begin path=\(preview.previewImageURL.path) display=\(preview.display.id) name=\(preview.display.friendlyName)")
             try previewDesktopSetter.setWallpaper(fileURL: preview.previewImageURL, for: preview.display)
+            logger.info("apply.wallpaper.set.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
             lastErrorMessage = "Applied preview to \(preview.display.friendlyName)."
             logger.info("apply.done path=\(preview.previewImageURL.path) display=\(preview.display.id)")
         } catch {
@@ -622,7 +642,9 @@ final class AppContainer: ObservableObject {
                 "\(prefix)-\(Self.safeFileComponent(display.id))-\(UUID().uuidString)"
             )
             .appendingPathExtension(fileExtension)
+        logger.info("file.write.begin prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
         try data.write(to: fileURL, options: .atomic)
+        logger.info("file.write.done prefix=\(prefix) bytes=\(data.count) path=\(fileURL.path)")
         return fileURL
     }
 
@@ -655,6 +677,17 @@ final class AppContainer: ObservableObject {
         }
 
         return String(describing: error)
+    }
+
+    private static func sourceAttributionSummary(_ attribution: SourceAttribution) -> String {
+        switch attribution {
+        case .aiGenerated(let attribution):
+            return "source=ai provider=\(attribution.providerID) model=\(attribution.model)"
+        case .localDesktop(let attribution):
+            return "source=local original=\(attribution.originalURL.path) local=\(attribution.localFileURL.path)"
+        case .unsplash(let attribution):
+            return "source=unsplash photo=\(attribution.photoID) author=\(attribution.authorName)"
+        }
     }
 
     private static func fallbackDisplay() -> DisplayTarget {

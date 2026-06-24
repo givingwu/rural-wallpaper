@@ -6,7 +6,10 @@ struct GenerationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Toggle("Auto Update", isOn: $settings.autoUpdateEnabled)
+            Toggle("Auto Update & Apply", isOn: $settings.autoUpdateEnabled)
+            Text("When enabled, Rural Wallpaper periodically generates a new preview from the selected display and applies it automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Stepper(value: $settings.refreshIntervalHours, in: 1...168) {
                 labeledValue("Refresh", "\(settings.refreshIntervalHours) h")

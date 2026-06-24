@@ -309,6 +309,49 @@ final class AppContainerTests: XCTestCase {
     }
 
     @MainActor
+    func testAutomaticPreviewUpdateGeneratesAndAppliesWallpaper() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        let setter = SpyDesktopWallpaperSetter()
+        let logURL = tempDirectory.appendingPathComponent("test.log")
+        var settings = AppSettings.default
+        settings.autoUpdateEnabled = true
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords()),
+            previewDesktopSetter: setter,
+            logger: AppLogger(logFileURL: logURL)
+        )
+
+        let preview = try await container.runAutomaticPreviewUpdate()
+
+        XCTAssertEqual(setter.calls, [
+            WallpaperSetCall(fileURL: preview.previewImageURL, display: display)
+        ])
+        XCTAssertEqual(
+            container.lastErrorMessage,
+            "Auto update applied preview to built-in."
+        )
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        assertLogOrder(
+            log,
+            [
+                "auto_update.begin",
+                "preview.begin",
+                "apply.wallpaper.set.begin",
+                "apply.wallpaper.set.done",
+                "auto_update.done"
+            ]
+        )
+    }
+
+    @MainActor
     func testGenerateGlassPreviewWritesExecutionOrderToLog() async throws {
         let tempDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
@@ -336,11 +379,16 @@ final class AppContainerTests: XCTestCase {
             [
                 "preview.begin",
                 "display.selected",
+                "preview.directory.create.begin",
+                "preview.directory.create.done",
                 "source.begin",
+                "source.image.read.done",
                 "source.done",
                 "words.begin",
                 "words.done count=3",
                 "render.begin",
+                "file.write.begin prefix=glass-preview",
+                "file.write.done prefix=glass-preview",
                 "render.done",
                 "preview.done"
             ]

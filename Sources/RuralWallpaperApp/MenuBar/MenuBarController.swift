@@ -10,6 +10,7 @@ final class MenuBarController: NSObject {
     private let previewWindowController: WallpaperPreviewWindowController
     private var state = MenuBarState()
     private var generationTask: Task<Void, Never>?
+    private var automaticUpdateTask: Task<Void, Never>?
 
     init(container: AppContainer) {
         self.container = container
@@ -30,72 +31,129 @@ final class MenuBarController: NSObject {
         }
 
         rebuildMenu()
+        startAutomaticUpdateTimer()
     }
 
     private func rebuildMenu() {
+        updateStatusButtonImage()
         let menu = NSMenu()
-        let status = NSMenuItem(title: statusTitle, action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-        menu.addItem(.separator())
-
-        let generate = NSMenuItem(
-            title: "Generate Preview",
-            action: #selector(generatePreview),
-            keyEquivalent: "g"
+        let sections = MenuBarMenuModel.sections(
+            isGenerating: state.isGenerating,
+            hasLastPreview: lastPreviewURL != nil
         )
-        generate.target = self
-        generate.isEnabled = !state.isGenerating
-        menu.addItem(generate)
 
-        let choose = NSMenuItem(
-            title: "Choose Image...",
-            action: #selector(chooseImagePreview),
-            keyEquivalent: "o"
-        )
-        choose.target = self
-        choose.isEnabled = !state.isGenerating
-        menu.addItem(choose)
-
-        if state.isGenerating {
-            let cancel = NSMenuItem(
-                title: "Cancel Generation",
-                action: #selector(cancelGeneration),
-                keyEquivalent: "."
-            )
-            cancel.target = self
-            menu.addItem(cancel)
+        for sectionIndex in sections.indices {
+            for descriptor in sections[sectionIndex].items {
+                menu.addItem(menuItem(for: descriptor))
+            }
+            if sectionIndex < sections.index(before: sections.endIndex) {
+                menu.addItem(.separator())
+            }
         }
 
-        let display = NSMenuItem(title: "Selected Display", action: nil, keyEquivalent: "")
-        display.submenu = selectedDisplayMenu()
-        menu.addItem(display)
-
-        menu.addItem(.separator())
-
-        let openPreview = NSMenuItem(
-            title: "Open Last Preview",
-            action: #selector(openLastPreview),
-            keyEquivalent: "p"
-        )
-        openPreview.target = self
-        openPreview.isEnabled = lastPreviewURL != nil
-        menu.addItem(openPreview)
-
-        let settings = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        let logs = NSMenuItem(title: "Open Logs", action: #selector(openLogs), keyEquivalent: "l")
-        logs.target = self
-        menu.addItem(logs)
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
         statusItem.menu = menu
+    }
+
+    private func menuItem(for descriptor: MenuBarMenuItem) -> NSMenuItem {
+        switch descriptor.role {
+        case .loading:
+            return loadingMenuItem()
+        case .submenu:
+            let item = NSMenuItem(title: descriptor.title, action: nil, keyEquivalent: "")
+            item.submenu = selectedDisplayMenu()
+            item.isEnabled = descriptor.isEnabled
+            return item
+        case .action:
+            let item = NSMenuItem(
+                title: descriptor.title,
+                action: action(for: descriptor.title),
+                keyEquivalent: keyEquivalent(for: descriptor.title)
+            )
+            item.target = self
+            item.isEnabled = descriptor.isEnabled
+            return item
+        }
+    }
+
+    private func action(for title: String) -> Selector? {
+        switch title {
+        case "Choose Image":
+            return #selector(chooseImagePreview)
+        case "Generate Preview":
+            return #selector(generatePreview)
+        case "Cancel Generation":
+            return #selector(cancelGeneration)
+        case "Open Last Preview":
+            return #selector(openLastPreview)
+        case "Open Logs":
+            return #selector(openLogs)
+        case "Settings":
+            return #selector(showSettings)
+        case "Quit":
+            return #selector(quit)
+        default:
+            return nil
+        }
+    }
+
+    private func keyEquivalent(for title: String) -> String {
+        switch title {
+        case "Choose Image":
+            return "o"
+        case "Generate Preview":
+            return "g"
+        case "Cancel Generation":
+            return "."
+        case "Open Last Preview":
+            return "p"
+        case "Open Logs":
+            return "l"
+        case "Settings":
+            return ","
+        case "Quit":
+            return "q"
+        default:
+            return ""
+        }
+    }
+
+    private func updateStatusButtonImage() {
+        guard let button = statusItem.button else {
+            return
+        }
+
+        let symbolName = state.isGenerating ? "arrow.triangle.2.circlepath" : "photo.on.rectangle.angled"
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Rural Wallpaper")
+        button.image?.isTemplate = true
+    }
+
+    private func loadingMenuItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        item.isEnabled = false
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 14, bottom: 4, right: 14)
+
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isIndeterminate = true
+        spinner.startAnimation(nil)
+        spinner.setFrameSize(NSSize(width: 16, height: 16))
+
+        let label = NSTextField(labelWithString: statusTitle)
+        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.textColor = .secondaryLabelColor
+
+        stack.addArrangedSubview(spinner)
+        stack.addArrangedSubview(label)
+        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
+        item.view = stack
+
+        return item
     }
 
     private var statusTitle: String {
@@ -199,6 +257,49 @@ final class MenuBarController: NSObject {
         }
     }
 
+    private func startAutomaticUpdateTimer() {
+        automaticUpdateTask?.cancel()
+        automaticUpdateTask = Task { @MainActor [weak self] in
+            self?.runAutomaticUpdateIfNeeded()
+
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 60_000_000_000)
+                } catch {
+                    break
+                }
+                self?.runAutomaticUpdateIfNeeded()
+            }
+        }
+    }
+
+    private func runAutomaticUpdateIfNeeded(now: Date = Date()) {
+        guard state.shouldRunAutomaticUpdate(settings: container.settings, now: now) else {
+            return
+        }
+        guard state.beginManualGeneration() else {
+            rebuildMenu()
+            return
+        }
+
+        rebuildMenu()
+        generationTask = Task { @MainActor in
+            do {
+                _ = try await container.runAutomaticPreviewUpdate()
+                state.finishSuccessfully()
+            } catch is CancellationError {
+                state.finishCancelled()
+            } catch {
+                let message = AppContainer.describe(error)
+                container.lastErrorMessage = message
+                state.finishWithFailure(message)
+            }
+
+            generationTask = nil
+            rebuildMenu()
+        }
+    }
+
     @objc private func cancelGeneration() {
         generationTask?.cancel()
         rebuildMenu()
@@ -234,5 +335,9 @@ final class MenuBarController: NSObject {
 
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
+    }
+
+    deinit {
+        automaticUpdateTask?.cancel()
     }
 }
