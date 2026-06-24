@@ -131,4 +131,27 @@ final class CLIWordProviderTests: XCTestCase {
         XCTAssertTrue(invocation.contains("--"))
         XCTAssertEqual(invocation.suffix(2), ["--", prompt])
     }
+
+    func testMissingCodexErrorIncludesInstallHint() {
+        let error = CLIWordProviderError.commandNotInstalled(command: .codex)
+
+        XCTAssertEqual(
+            error.errorDescription,
+            "未安装 Codex CLI。请先安装并登录 codex，然后重试。"
+        )
+    }
+
+    func testExecutableResolverReturnsNilWhenCommandIsNotOnPath() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CLIWordProviderPathTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+
+        XCTAssertNil(
+            CLIWordProvider.executablePath(
+                named: "codex",
+                searchPath: tempDirectory.path
+            )
+        )
+    }
 }

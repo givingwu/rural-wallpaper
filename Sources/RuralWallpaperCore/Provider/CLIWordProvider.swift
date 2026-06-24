@@ -3,11 +3,21 @@ import Foundation
 public enum CLIWordCommand: String, Codable, CaseIterable, Equatable, Sendable {
     case codex
     case claude
+
+    public var displayName: String {
+        switch self {
+        case .codex:
+            return "Codex"
+        case .claude:
+            return "Claude Code"
+        }
+    }
 }
 
 public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
     case invalidJSON
     case invalidWordCount(Int)
+    case commandNotInstalled(command: CLIWordCommand)
     case commandFailed(command: String, exitCode: Int32, stderr: String)
 
     public var errorDescription: String? {
@@ -16,6 +26,8 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
             return "AI CLI did not return valid vocabulary JSON."
         case .invalidWordCount(let count):
             return "AI CLI returned \(count) words; expected 3...5."
+        case .commandNotInstalled(let command):
+            return "未安装 \(command.displayName) CLI。请先安装并登录 \(command.rawValue)，然后重试。"
         case .commandFailed(let command, let exitCode, let stderr):
             let message = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if message.isEmpty {
@@ -85,6 +97,13 @@ public struct CLIWordProvider: ImageFileWordProvider {
             environment["PATH"] = Self.defaultPath(environment: environment)
             process.environment = environment
             self.logHandler?("cli.path \(environment["PATH"] ?? "")")
+            guard Self.executablePath(
+                named: command.rawValue,
+                searchPath: environment["PATH"] ?? ""
+            ) != nil else {
+                self.logHandler?("cli.missing command=\(command.rawValue)")
+                throw CLIWordProviderError.commandNotInstalled(command: command)
+            }
 
             let stdout = Pipe()
             let stderr = Pipe()
@@ -239,6 +258,31 @@ public struct CLIWordProvider: ImageFileWordProvider {
         return (existingComponents + additions)
             .filter { !$0.isEmpty && seen.insert($0).inserted }
             .joined(separator: ":")
+    }
+
+    static func executablePath(
+        named executableName: String,
+        searchPath: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard !executableName.isEmpty else {
+            return nil
+        }
+
+        if executableName.contains("/") {
+            return fileManager.isExecutableFile(atPath: executableName) ? executableName : nil
+        }
+
+        for directory in searchPath.split(separator: ":").map(String.init) where !directory.isEmpty {
+            let candidate = URL(fileURLWithPath: directory)
+                .appendingPathComponent(executableName)
+                .path
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+
+        return nil
     }
 
     private static func nvmVersionBinDirectories(home: String) -> [String] {
