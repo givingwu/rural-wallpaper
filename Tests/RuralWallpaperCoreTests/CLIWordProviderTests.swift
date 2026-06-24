@@ -192,12 +192,18 @@ final class CLIWordProviderTests: XCTestCase {
     func testCodexRunnerTimesOutAndReportsReadableError() async throws {
         let tempDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let logs = ThreadSafeLog()
         try writeExecutable(
             named: "codex",
             in: tempDirectory,
             script: """
             #!/bin/sh
-            sleep 2
+            i=0
+            while true; do
+              printf 'waiting for model %04d\\n' "$i" >&2
+              i=$((i + 1))
+              sleep 0.01
+            done
             """
         )
         let imageURL = tempDirectory.appendingPathComponent("image.png")
@@ -208,7 +214,8 @@ final class CLIWordProviderTests: XCTestCase {
                 "PATH": tempDirectory.path,
                 "HOME": tempDirectory.path
             ],
-            timeoutSeconds: 0.1
+            timeoutSeconds: 0.5,
+            logHandler: { logs.append($0) }
         )
 
         do {
@@ -217,8 +224,14 @@ final class CLIWordProviderTests: XCTestCase {
         } catch {
             XCTAssertEqual(
                 error as? CLIWordProviderError,
-                .commandTimedOut(command: .codex, timeoutSeconds: 0.1)
+                .commandTimedOut(command: .codex, timeoutSeconds: 0.5)
             )
+            let logText = logs.text
+            XCTAssertTrue(logText.contains("cli.timeout command=codex"))
+            XCTAssertTrue(logText.contains("durationSeconds="))
+            XCTAssertTrue(logText.contains("stdoutBytes=0"))
+            XCTAssertTrue(logText.contains("stderrBytes="))
+            XCTAssertTrue(logText.contains("stderrPreview=\"waiting for model"), logText)
         }
     }
 
@@ -236,5 +249,22 @@ final class CLIWordProviderTests: XCTestCase {
             [.posixPermissions: 0o755],
             ofItemAtPath: url.path
         )
+    }
+}
+
+private final class ThreadSafeLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [String] = []
+
+    func append(_ entry: String) {
+        lock.lock()
+        entries.append(entry)
+        lock.unlock()
+    }
+
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.joined(separator: "\n")
     }
 }

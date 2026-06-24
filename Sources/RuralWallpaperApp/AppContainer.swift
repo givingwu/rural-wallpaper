@@ -327,7 +327,7 @@ final class AppContainer: ObservableObject {
             logger.info("\(Self.runLogPrefix(generateStatus.runID))auto_update.done preview=\(preview.id.uuidString) display=\(preview.display.id) path=\(preview.previewImageURL.path)")
             return preview
         } catch {
-            logger.error("\(Self.runLogPrefix(generateStatus.runID))auto_update.failed error=\(Self.describe(error))")
+            logger.error("\(Self.runLogPrefix(generateStatus.runID))auto_update.failed error=\(Self.logDescription(error))")
             throw error
         }
     }
@@ -484,7 +484,7 @@ final class AppContainer: ObservableObject {
                     status.errorSummary = Self.describe(error)
                 }
             }
-            logger.error("\(runLog)preview.failed error=\(Self.describe(error))")
+            logger.error("\(runLog)preview.failed error=\(Self.logDescription(error))")
             throw error
         }
     }
@@ -523,7 +523,7 @@ final class AppContainer: ObservableObject {
                 status.errorSummary = Self.describe(error)
             }
             generationProgressMessage = "Failed"
-            logger.error("\(runLog)apply.failed error=\(Self.describe(error))")
+            logger.error("\(runLog)apply.failed error=\(Self.logDescription(error))")
             throw error
         }
     }
@@ -858,6 +858,14 @@ final class AppContainer: ObservableObject {
         }
 
         return String(describing: error)
+    }
+
+    private static func logDescription(_ error: Error) -> String {
+        if let cliError = error as? CLIWordProviderError {
+            return cliError.logDescription
+        }
+
+        return describe(error)
     }
 
     private static func sourceAttributionSummary(_ attribution: SourceAttribution) -> String {

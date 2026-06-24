@@ -126,7 +126,7 @@ If the selected CLI itself is missing, the app shows a direct install reminder s
 
 CLI runs are capped at 180 seconds. The app continuously drains CLI stdout/stderr while it waits, then logs `cli.exit durationSeconds=...` or `cli.timeout ...` so stalled runs do not hang forever.
 
-During generation, `Generate Status` shows the current phase such as `Extracting words`, elapsed time, and the 180-second cap. After a run finishes, it shows whether the source was a screen wallpaper or chosen image, the exact source filename, the target display resolution, the preview filename, and the word count. Logs include a `runID=...` value on the detailed source, file write, CLI, render, preview, and apply lines for tracing one run end to end.
+During generation, `Generate Status` shows the current phase such as `Extracting words`, elapsed time, and the 180-second cap. After a run finishes, it shows whether the source was a screen wallpaper or chosen image, the exact source filename, the target display resolution, the preview filename, and the word count. Logs use English diagnostics and include a `runID=...` value on the detailed source, file write, CLI, render, preview, and apply lines for tracing one run end to end.
 
 ## Packaging
 

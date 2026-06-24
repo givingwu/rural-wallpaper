@@ -25,7 +25,7 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidJSON:
-            return "AI CLI did not return valid vocabulary JSON."
+            return logDescription
         case .invalidWordCount(let count):
             return "AI CLI returned \(count) words; expected 3...5."
         case .commandNotInstalled(let command):
@@ -33,12 +33,31 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
         case .commandTimedOut(let command, let timeoutSeconds):
             return "\(command.displayName) CLI 执行超过 \(Self.formatSeconds(timeoutSeconds)) 秒，已停止本次生成。请稍后重试，或切换更快的 CLI。"
         case .commandFailed(let command, let exitCode, let stderr):
+            return Self.commandFailedDescription(command: command, exitCode: exitCode, stderr: stderr)
+        }
+    }
+
+    public var logDescription: String {
+        switch self {
+        case .invalidJSON:
+            return "AI CLI did not return valid vocabulary JSON."
+        case .invalidWordCount(let count):
+            return "AI CLI returned \(count) words; expected 3...5."
+        case .commandNotInstalled(let command):
+            return "\(command.displayName) CLI is not installed. Install and sign in to \(command.rawValue), then retry."
+        case .commandTimedOut(let command, let timeoutSeconds):
+            return "\(command.displayName) CLI timed out after \(Self.formatSeconds(timeoutSeconds)) seconds."
+        case .commandFailed(let command, let exitCode, let stderr):
+            return Self.commandFailedDescription(command: command, exitCode: exitCode, stderr: stderr)
+        }
+    }
+
+    private static func commandFailedDescription(command: String, exitCode: Int32, stderr: String) -> String {
             let message = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             if message.isEmpty {
                 return "\(command) exited with code \(exitCode)."
             }
             return "\(command) exited with code \(exitCode): \(message)"
-        }
     }
 
     private static func formatSeconds(_ value: TimeInterval) -> String {
@@ -164,14 +183,18 @@ public struct CLIWordProvider: ImageFileWordProvider {
 
         let didExit = exitSemaphore.wait(timeout: Self.dispatchTime(after: timeoutSeconds)) == .success
         if !didExit {
-            logHandler?("cli.timeout command=\(command.rawValue) pid=\(process.processIdentifier) timeoutSeconds=\(timeoutSeconds)")
             controller.terminate()
-            if exitSemaphore.wait(timeout: Self.dispatchTime(after: 2)) == .timedOut {
+            let didTerminate = exitSemaphore.wait(timeout: Self.dispatchTime(after: 2)) == .success
+            if !didTerminate {
                 controller.kill()
                 _ = exitSemaphore.wait(timeout: Self.dispatchTime(after: 1))
             }
-            _ = stdoutReader.waitForData(timeoutSeconds: 1)
-            _ = stderrReader.waitForData(timeoutSeconds: 1)
+            let stdoutData = stdoutReader.waitForData(timeoutSeconds: 1)
+            let stderrData = stderrReader.waitForData(timeoutSeconds: 1)
+            let duration = Date().timeIntervalSince(startedAt)
+            logHandler?(
+                "cli.timeout command=\(command.rawValue) pid=\(process.processIdentifier) timeoutSeconds=\(timeoutSeconds) durationSeconds=\(Self.formatDuration(duration)) stdoutBytes=\(stdoutData.count) stderrBytes=\(stderrData.count) didTerminate=\(didTerminate) stderrPreview=\"\(Self.logPreview(from: stderrData))\""
+            )
             throw CLIWordProviderError.commandTimedOut(
                 command: command,
                 timeoutSeconds: timeoutSeconds
@@ -360,6 +383,21 @@ public struct CLIWordProvider: ImageFileWordProvider {
 
     private static func formatDuration(_ value: TimeInterval) -> String {
         String(format: "%.3f", value)
+    }
+
+    private static func logPreview(from data: Data, limit: Int = 240) -> String {
+        let rawText = String(data: data, encoding: .utf8) ?? "<non-utf8 stderr>"
+        let flattened = rawText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+        guard flattened.count > limit else {
+            return flattened
+        }
+
+        return "\(flattened.prefix(limit))..."
     }
 
     private static func nvmVersionBinDirectories(home: String) -> [String] {

@@ -460,6 +460,7 @@ final class AppContainerTests: XCTestCase {
         let tempDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
         let display = makeDisplay(id: "built-in")
+        let logURL = tempDirectory.appendingPathComponent("test.log")
         let container = AppContainer(
             settingsStore: StaticSettingsStore(settings: .default),
             secretStore: InMemorySecretStore(),
@@ -470,7 +471,8 @@ final class AppContainerTests: XCTestCase {
             previewWordProvider: FailingImageFileWordProvider(
                 error: CLIWordProviderError.commandTimedOut(command: .codex, timeoutSeconds: 180)
             ),
-            previewDesktopSetter: SpyDesktopWallpaperSetter()
+            previewDesktopSetter: SpyDesktopWallpaperSetter(),
+            logger: AppLogger(logFileURL: logURL)
         )
 
         do {
@@ -482,6 +484,9 @@ final class AppContainerTests: XCTestCase {
             XCTAssertEqual(container.generateStatus.primaryLine(now: Date()), "Timed out · Codex CLI · 03:00")
             XCTAssertEqual(container.generateStatus.sourceLine, "Source: Generated image · test")
             XCTAssertEqual(container.generateStatus.targetLine, "Target: built-in · 1440x900")
+            let log = try String(contentsOf: logURL, encoding: .utf8)
+            XCTAssertTrue(log.contains("preview.failed error=Codex CLI timed out after 180 seconds."))
+            XCTAssertFalse(log.contains("执行超过"))
         }
     }
 

@@ -126,7 +126,7 @@ Settings 采用单页 grouped 布局：
 
 CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读取 CLI 的 stdout/stderr，避免 Codex 进度输出写满 pipe 后卡死；日志会记录 `cli.exit durationSeconds=...` 或 `cli.timeout ...`。
 
-生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、目标显示器分辨率、预览文件名和词数。日志中的 source、file.write、CLI、render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
+生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、目标显示器分辨率、预览文件名和词数。日志诊断字段保持英文；source、file.write、CLI、render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
 
 ## 打包
 
