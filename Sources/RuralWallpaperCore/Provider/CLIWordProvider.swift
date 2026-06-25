@@ -27,7 +27,7 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
         case .invalidJSON:
             return logDescription
         case .invalidWordCount(let count):
-            return "AI CLI returned \(count) words; expected 3...5."
+            return "AI CLI returned \(count) words; expected the configured word count."
         case .commandNotInstalled(let command):
             return "未安装 \(command.displayName) CLI。请先安装并登录 \(command.rawValue)，然后重试。"
         case .commandTimedOut(let command, let timeoutSeconds):
@@ -42,7 +42,7 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
         case .invalidJSON:
             return "AI CLI did not return valid vocabulary JSON."
         case .invalidWordCount(let count):
-            return "AI CLI returned \(count) words; expected 3...5."
+            return "AI CLI returned \(count) words; expected the configured word count."
         case .commandNotInstalled(let command):
             return "\(command.displayName) CLI is not installed. Install and sign in to \(command.rawValue), then retry."
         case .commandTimedOut(let command, let timeoutSeconds):

@@ -454,6 +454,127 @@ final class AppContainerTests: XCTestCase {
     }
 
     @MainActor
+    func testGenerateGlassPreviewSelectsWallpaperWordLimitForRendering() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        var settings = AppSettings.default
+        settings.vocabularyWordCount = 12
+        settings.wallpaperWordLimit = 4
+        let wordProvider = SpyImageFileWordProvider(words: previewWords(count: 12))
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: wordProvider,
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview()
+
+        XCTAssertEqual(preview.words.count, 12)
+        XCTAssertEqual(preview.selectedWordIndexes, [0, 1, 2, 3])
+        XCTAssertEqual(preview.selectedWords.map(\.word), ["meadow", "ridge", "glow", "lantern"])
+        XCTAssertEqual(container.lastErrorMessage, "Preview generated with 12 word(s); 4 selected.")
+        let targetCounts = await wordProvider.targetCounts
+        XCTAssertEqual(targetCounts, [12])
+    }
+
+    @MainActor
+    func testPreviewWordSelectionRerendersPreviewWithoutRunningWordProviderAgain() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        var settings = AppSettings.default
+        settings.vocabularyWordCount = 6
+        settings.wallpaperWordLimit = 6
+        let wordProvider = SpyImageFileWordProvider(words: previewWords(count: 6))
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: wordProvider,
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+        let initialPreview = try await container.generateGlassPreview()
+
+        let updatedPreview = try container.setPreviewWordSelection(index: 5, isSelected: false)
+
+        XCTAssertEqual(updatedPreview.id, initialPreview.id)
+        XCTAssertEqual(updatedPreview.words, initialPreview.words)
+        XCTAssertEqual(updatedPreview.selectedWordIndexes, [0, 1, 2, 3, 4])
+        XCTAssertEqual(updatedPreview.selectedWords.map(\.word), ["meadow", "ridge", "glow", "lantern", "harvest"])
+        XCTAssertNotEqual(updatedPreview.previewImageURL, initialPreview.previewImageURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: updatedPreview.previewImageURL.path))
+        XCTAssertEqual(container.activeGlassPreview, updatedPreview)
+        XCTAssertEqual(container.lastGeneratedWallpaperURLs, [updatedPreview.previewImageURL])
+        XCTAssertEqual(container.generateStatus.previewURL, updatedPreview.previewImageURL)
+        XCTAssertEqual(container.lastErrorMessage, "Preview updated with 5 selected word(s).")
+        let targetCounts = await wordProvider.targetCounts
+        XCTAssertEqual(targetCounts, [6])
+    }
+
+    @MainActor
+    func testPreviewWordSelectionHonorsWallpaperWordLimit() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        var settings = AppSettings.default
+        settings.vocabularyWordCount = 8
+        settings.wallpaperWordLimit = 3
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords(count: 8)),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+        let initialPreview = try await container.generateGlassPreview()
+
+        let unchangedPreview = try container.setPreviewWordSelection(index: 3, isSelected: true)
+
+        XCTAssertEqual(unchangedPreview, initialPreview)
+        XCTAssertEqual(container.activeGlassPreview, initialPreview)
+        XCTAssertEqual(container.lastErrorMessage, "Select up to 3 word(s) for wallpaper.")
+    }
+
+    @MainActor
+    func testPreviewWordSelectionKeepsAtLeastOneWordSelected() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        var settings = AppSettings.default
+        settings.vocabularyWordCount = 3
+        settings.wallpaperWordLimit = 1
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: StaticImageFileWordProvider(words: previewWords(count: 3)),
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+        let initialPreview = try await container.generateGlassPreview()
+
+        let unchangedPreview = try container.setPreviewWordSelection(index: 0, isSelected: false)
+
+        XCTAssertEqual(unchangedPreview, initialPreview)
+        XCTAssertEqual(container.activeGlassPreview, initialPreview)
+        XCTAssertEqual(container.lastErrorMessage, "Keep at least one word selected.")
+    }
+
+    @MainActor
     func testGenerateStatusTracksSelectedImageSourceTargetAndPreview() async throws {
         let tempDirectory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDirectory) }

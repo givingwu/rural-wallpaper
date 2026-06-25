@@ -106,6 +106,10 @@ final class CLIWordProviderTests: XCTestCase {
             try CLIWordProvider.parseWords(from: output, expectedCount: 6)
         ) { error in
             XCTAssertEqual(error as? CLIWordProviderError, .invalidWordCount(5))
+            XCTAssertEqual(
+                (error as? CLIWordProviderError)?.logDescription,
+                "AI CLI returned 5 words; expected the configured word count."
+            )
         }
     }
 

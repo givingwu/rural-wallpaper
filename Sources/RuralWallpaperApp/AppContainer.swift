@@ -85,7 +85,15 @@ struct GlassWallpaperPreview: Equatable, Identifiable {
     let sourceImageURL: URL
     let previewImageURL: URL
     let words: [VocabularyItem]
+    let selectedWordIndexes: Set<Int>
     let createdAt: Date
+
+    var selectedWords: [VocabularyItem] {
+        selectedWordIndexes.sorted().compactMap { index in
+            guard words.indices.contains(index) else { return nil }
+            return words[index]
+        }
+    }
 
     init(
         id: UUID = UUID(),
@@ -93,6 +101,7 @@ struct GlassWallpaperPreview: Equatable, Identifiable {
         sourceImageURL: URL,
         previewImageURL: URL,
         words: [VocabularyItem],
+        selectedWordIndexes: Set<Int>? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -100,6 +109,7 @@ struct GlassWallpaperPreview: Equatable, Identifiable {
         self.sourceImageURL = sourceImageURL
         self.previewImageURL = previewImageURL
         self.words = words
+        self.selectedWordIndexes = selectedWordIndexes ?? Set(words.indices)
         self.createdAt = createdAt
     }
 }
@@ -423,10 +433,17 @@ final class AppContainer: ObservableObject {
             logger.info("\(runLog)words.done count=\(words.count) words=\(words.map(\.word).joined(separator: ","))")
 
             setGeneratePhase(.renderingPreview, message: "Rendering preview")
-            logger.info("\(runLog)render.begin mode=glass")
+            let selectedWordIndexes = Self.defaultSelectedWordIndexes(
+                wordCount: words.count,
+                limit: settings.wallpaperWordLimit
+            )
+            let selectedWords = Self.selectedWords(from: words, indexes: selectedWordIndexes)
+            logger.info(
+                "\(runLog)render.begin mode=glass selectedWords=\(selectedWords.count) selectedIndexes=\(Self.formatIndexes(selectedWordIndexes))"
+            )
             let rendered = try CoreGraphicsRenderEngine().renderGlassOverlay(
                 background: source.imageData,
-                words: words,
+                words: selectedWords,
                 display: display
             )
             try Task.checkCancellation()
@@ -446,12 +463,13 @@ final class AppContainer: ObservableObject {
                 sourceImageURL: sourceURL,
                 previewImageURL: previewURL,
                 words: words,
+                selectedWordIndexes: selectedWordIndexes,
                 createdAt: finishedAt
             )
 
             activeGlassPreview = preview
             lastGeneratedWallpaperURLs = [previewURL]
-            lastErrorMessage = "Preview generated with \(words.count) word(s)."
+            lastErrorMessage = "Preview generated with \(words.count) word(s); \(selectedWords.count) selected."
             generationProgressMessage = "Ready"
             updateGenerateStatus { status in
                 status.phase = .done
@@ -492,6 +510,82 @@ final class AppContainer: ObservableObject {
             logger.error("\(runLog)preview.failed error=\(Self.logDescription(error))")
             throw error
         }
+    }
+
+    @discardableResult
+    func setPreviewWordSelection(index: Int, isSelected: Bool) throws -> GlassWallpaperPreview {
+        let runID = generateStatus.runID
+        let runLog = Self.runLogPrefix(runID)
+        guard let preview = activeGlassPreview else {
+            logger.error("\(runLog)selection.failed error=\(AppContainerError.noPreviewAvailable.localizedDescription)")
+            throw AppContainerError.noPreviewAvailable
+        }
+        guard preview.words.indices.contains(index) else {
+            logger.info("\(runLog)selection.ignored index=\(index) reason=missing_word")
+            return preview
+        }
+        guard preview.selectedWordIndexes.contains(index) != isSelected else {
+            logger.info("\(runLog)selection.ignored index=\(index) reason=unchanged")
+            return preview
+        }
+
+        var selectedIndexes = preview.selectedWordIndexes
+        if isSelected {
+            guard selectedIndexes.count < settings.wallpaperWordLimit else {
+                lastErrorMessage = "Select up to \(settings.wallpaperWordLimit) word(s) for wallpaper."
+                logger.info(
+                    "\(runLog)selection.ignored index=\(index) reason=limit selectedWords=\(selectedIndexes.count) limit=\(settings.wallpaperWordLimit)"
+                )
+                return preview
+            }
+            selectedIndexes.insert(index)
+        } else {
+            guard selectedIndexes.count > AppSettings.wallpaperWordLimitRange.lowerBound else {
+                lastErrorMessage = "Keep at least one word selected."
+                logger.info("\(runLog)selection.ignored index=\(index) reason=minimum")
+                return preview
+            }
+            selectedIndexes.remove(index)
+        }
+
+        let selectedWords = Self.selectedWords(from: preview.words, indexes: selectedIndexes)
+        logger.info(
+            "\(runLog)selection.render.begin index=\(index) selected=\(isSelected) selectedWords=\(selectedWords.count) selectedIndexes=\(Self.formatIndexes(selectedIndexes)) source=\(preview.sourceImageURL.path)"
+        )
+        let sourceData = try Data(contentsOf: preview.sourceImageURL)
+        logger.info("\(runLog)selection.source.read.done bytes=\(sourceData.count) path=\(preview.sourceImageURL.path)")
+        let rendered = try CoreGraphicsRenderEngine().renderGlassOverlay(
+            background: sourceData,
+            words: selectedWords,
+            display: preview.display
+        )
+        let previewURL = try writePreviewData(
+            rendered.pngData,
+            directory: preview.previewImageURL.deletingLastPathComponent(),
+            display: preview.display,
+            prefix: "glass-preview-selection",
+            fileExtension: "png",
+            runID: runID
+        )
+        let nextPreview = GlassWallpaperPreview(
+            id: preview.id,
+            display: preview.display,
+            sourceImageURL: preview.sourceImageURL,
+            previewImageURL: previewURL,
+            words: preview.words,
+            selectedWordIndexes: selectedIndexes,
+            createdAt: preview.createdAt
+        )
+
+        activeGlassPreview = nextPreview
+        lastGeneratedWallpaperURLs = [previewURL]
+        lastErrorMessage = "Preview updated with \(selectedWords.count) selected word(s)."
+        updateGenerateStatus { status in
+            status.previewURL = previewURL
+            status.errorSummary = nil
+        }
+        logger.info("\(runLog)selection.render.done bytes=\(rendered.pngData.count) path=\(previewURL.path)")
+        return nextPreview
     }
 
     func applyGlassPreview(_ preview: GlassWallpaperPreview? = nil, runID: String? = nil) throws {
@@ -812,6 +906,26 @@ final class AppContainer: ObservableObject {
         }
 
         return sourceDisplays.first(where: \.isMain) ?? sourceDisplays.first
+    }
+
+    private static func defaultSelectedWordIndexes(wordCount: Int, limit: Int) -> Set<Int> {
+        let visibleCount = min(wordCount, AppSettings.clampedWallpaperWordLimit(limit))
+        guard visibleCount > 0 else { return [] }
+        return Set(0..<visibleCount)
+    }
+
+    private static func selectedWords(
+        from words: [VocabularyItem],
+        indexes: Set<Int>
+    ) -> [VocabularyItem] {
+        indexes.sorted().compactMap { index in
+            guard words.indices.contains(index) else { return nil }
+            return words[index]
+        }
+    }
+
+    private static func formatIndexes(_ indexes: Set<Int>) -> String {
+        indexes.sorted().map(String.init).joined(separator: ",")
     }
 
     private func writePreviewData(
