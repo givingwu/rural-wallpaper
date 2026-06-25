@@ -53,17 +53,17 @@ final class RenderEngineTests: XCTestCase {
     func testGlassOverlayUsesDistributedBadgesWithChineseDefinitions() throws {
         let canvas = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let engine = CoreGraphicsRenderEngine()
-        let words = Array(realisticVocabularyItems().prefix(5))
+        let words = Array(realisticVocabularyItems().prefix(6))
 
         let badges = engine.makeGlassWordBadges(words: words, in: canvas)
 
         XCTAssertEqual(badges.map(\.displayText), words.map(\.word))
         XCTAssertEqual(
             badges.map(\.detailText),
-            Array(repeating: "名词 · 测试词", count: 5)
+            Array(repeating: "名词 · 测试词", count: 6)
         )
         XCTAssertEqual(badges.first?.role, .primary)
-        XCTAssertEqual(badges.dropFirst().map(\.role), Array(repeating: .secondary, count: 4))
+        XCTAssertEqual(badges.dropFirst().map(\.role), Array(repeating: .secondary, count: 5))
         XCTAssertTrue(badges.allSatisfy { !$0.displayText.containsCJKCharacters })
         XCTAssertTrue(badges.allSatisfy { ($0.detailText ?? "").containsCJKCharacters })
         XCTAssertTrue(badges.allSatisfy { $0.style.fillAlpha <= 0.12 })
@@ -81,6 +81,50 @@ final class RenderEngineTests: XCTestCase {
                     badges[index].rect.insetBy(dx: -18, dy: -18)
                         .intersects(badges[otherIndex].rect),
                     "glass word badges should not visually cluster"
+                )
+            }
+        }
+    }
+
+    func testGlassOverlaySupportsTwelveSelectedWordsWithoutOverlappingBadges() throws {
+        let display = makeDisplay(width: 1440, height: 900)
+        let canvas = CGRect(
+            x: 0,
+            y: 0,
+            width: display.pixelSize.width,
+            height: display.pixelSize.height
+        )
+        let background = try makeSolidPNG(
+            width: display.pixelSize.width,
+            height: display.pixelSize.height,
+            color: NSColor(calibratedRed: 0.06, green: 0.10, blue: 0.13, alpha: 1)
+        )
+        let engine = CoreGraphicsRenderEngine()
+        let words = Array(realisticVocabularyItems().prefix(12))
+
+        let rendered = try engine.renderGlassOverlay(
+            background: background,
+            words: words,
+            display: display
+        )
+        let badges = engine.makeGlassWordBadges(words: words, in: canvas)
+        let output = try decodePNG(rendered.pngData)
+
+        XCTAssertEqual(rendered.words.map(\.word), words.map(\.word))
+        XCTAssertEqual(badges.count, 12)
+        XCTAssertEqual(output.pixelsWide, display.pixelSize.width)
+        XCTAssertEqual(output.pixelsHigh, display.pixelSize.height)
+        XCTAssertTrue(containsReadableLightPixel(output))
+
+        for badge in badges {
+            XCTAssertTrue(canvas.contains(badge.rect))
+        }
+        for index in badges.indices {
+            for otherIndex in badges.indices where otherIndex > index {
+                XCTAssertFalse(
+                    badges[index].rect.insetBy(dx: -8, dy: -8)
+                        .intersects(badges[otherIndex].rect),
+                    "dense glass word badges should stay visually separated"
                 )
             }
         }
@@ -527,7 +571,14 @@ final class RenderEngineTests: XCTestCase {
             makeVocabularyItem(word: "harvest"),
             makeVocabularyItem(word: "orchard"),
             makeVocabularyItem(word: "ridge"),
-            makeVocabularyItem(word: "pasture")
+            makeVocabularyItem(word: "pasture"),
+            makeVocabularyItem(word: "lantern"),
+            makeVocabularyItem(word: "willow"),
+            makeVocabularyItem(word: "courtyard"),
+            makeVocabularyItem(word: "bloom"),
+            makeVocabularyItem(word: "valley"),
+            makeVocabularyItem(word: "hillside"),
+            makeVocabularyItem(word: "overcast")
         ]
     }
 

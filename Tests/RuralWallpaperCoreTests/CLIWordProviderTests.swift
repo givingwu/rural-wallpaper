@@ -82,6 +82,33 @@ final class CLIWordProviderTests: XCTestCase {
         XCTAssertEqual(words.map(\.word), ["meadow", "cottage", "mist"])
     }
 
+    func testPromptRequestsConfiguredWordCount() {
+        let imageURL = URL(fileURLWithPath: "/tmp/wallpaper.heic")
+
+        let prompt = CLIWordProvider.prompt(for: imageURL, targetCount: 12)
+
+        XCTAssertTrue(prompt.contains("输出 12 个"))
+        XCTAssertTrue(prompt.contains("exactly 12"))
+    }
+
+    func testParseWordsAcceptsConfiguredCount() throws {
+        let output = makeWordsJSON(count: 6)
+
+        let words = try CLIWordProvider.parseWords(from: output, expectedCount: 6)
+
+        XCTAssertEqual(words.count, 6)
+    }
+
+    func testParseWordsRejectsMismatchedConfiguredCount() {
+        let output = makeWordsJSON(count: 5)
+
+        XCTAssertThrowsError(
+            try CLIWordProvider.parseWords(from: output, expectedCount: 6)
+        ) { error in
+            XCTAssertEqual(error as? CLIWordProviderError, .invalidWordCount(5))
+        }
+    }
+
     func testRejectsNonJSONOutputWithReadableError() {
         XCTAssertThrowsError(
             try CLIWordProvider.parseWords(from: "not json")
@@ -184,7 +211,7 @@ final class CLIWordProviderTests: XCTestCase {
             timeoutSeconds: 5
         )
 
-        let words = try await provider.extractWords(from: imageURL)
+        let words = try await provider.extractWords(from: imageURL, targetCount: 3)
 
         XCTAssertEqual(words.map(\.word), ["meadow", "ridge", "glow"])
     }
@@ -219,7 +246,7 @@ final class CLIWordProviderTests: XCTestCase {
         )
 
         do {
-            _ = try await provider.extractWords(from: imageURL)
+            _ = try await provider.extractWords(from: imageURL, targetCount: 3)
             XCTFail("Expected timeout")
         } catch {
             XCTAssertEqual(
@@ -249,6 +276,16 @@ final class CLIWordProviderTests: XCTestCase {
             [.posixPermissions: 0o755],
             ofItemAtPath: url.path
         )
+    }
+
+    private func makeWordsJSON(count: Int) -> String {
+        let words = (0..<count).map { index in
+            """
+            {"word":"word\(index)","partOfSpeech":"noun","zhDefinition":"词\(index)","example":"Example \(index).","difficulty":2,"sourceReason":"Test word \(index)."}
+            """
+        }
+        .joined(separator: ",")
+        return #"{"words":["# + words + #"]}"#
     }
 }
 

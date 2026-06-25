@@ -11,6 +11,63 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(AppSettings.default.historyLimitPerDisplay, 30)
     }
 
+    func testDefaultVocabularySettings() {
+        XCTAssertEqual(AppSettings.default.vocabularyWordCount, 6)
+        XCTAssertEqual(AppSettings.default.wallpaperWordLimit, 6)
+    }
+
+    func testAppSettingsDecodesMissingVocabularyFieldsWithDefaults() throws {
+        let json = """
+        {
+          "autoUpdateEnabled": false,
+          "refreshIntervalHours": 24,
+          "maxBackgroundAttempts": 3,
+          "maxLayoutCandidates": 5,
+          "minimumScore": 0.75,
+          "historyLimitPerDisplay": 30,
+          "preferredThemes": ["rural", "nature", "calm"],
+          "enabledDisplayIDs": []
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.vocabularyWordCount, 6)
+        XCTAssertEqual(decoded.wallpaperWordLimit, 6)
+    }
+
+    func testAppSettingsClampsVocabularyRanges() throws {
+        let tooHigh = AppSettings(
+            autoUpdateEnabled: false,
+            refreshIntervalHours: 24,
+            maxBackgroundAttempts: 3,
+            maxLayoutCandidates: 5,
+            minimumScore: 0.75,
+            historyLimitPerDisplay: 30,
+            preferredThemes: [],
+            enabledDisplayIDs: [],
+            vocabularyWordCount: 40,
+            wallpaperWordLimit: 20
+        )
+        XCTAssertEqual(tooHigh.vocabularyWordCount, 24)
+        XCTAssertEqual(tooHigh.wallpaperWordLimit, 12)
+
+        let tooLow = AppSettings(
+            autoUpdateEnabled: false,
+            refreshIntervalHours: 24,
+            maxBackgroundAttempts: 3,
+            maxLayoutCandidates: 5,
+            minimumScore: 0.75,
+            historyLimitPerDisplay: 30,
+            preferredThemes: [],
+            enabledDisplayIDs: [],
+            vocabularyWordCount: 1,
+            wallpaperWordLimit: 0
+        )
+        XCTAssertEqual(tooLow.vocabularyWordCount, 3)
+        XCTAssertEqual(tooLow.wallpaperWordLimit, 1)
+    }
+
     func testUserDefaultsSettingsStoreReturnsDefaultWhenNoSettingsAreSaved() throws {
         let (suiteName, userDefaults) = try makeIsolatedUserDefaults()
         defer {

@@ -213,7 +213,10 @@ final class AppContainerTests: XCTestCase {
 
         XCTAssertEqual(container.activeGlassPreview, preview)
         XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
-        XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+        XCTAssertEqual(
+            preview.words.map(\.word),
+            ["meadow", "ridge", "glow", "lantern", "harvest", "tranquil"]
+        )
         XCTAssertEqual(container.generationProgressMessage, "Ready")
         XCTAssertTrue(setter.calls.isEmpty)
     }
@@ -386,7 +389,7 @@ final class AppContainerTests: XCTestCase {
                 "source.image.read.done",
                 "source.done",
                 "words.begin",
-                "words.done count=3",
+                "words.done count=6",
                 "render.begin",
                 "file.write.begin prefix=glass-preview",
                 "file.write.done prefix=glass-preview",
@@ -418,7 +421,36 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(preview.sourceImageURL.pathExtension, "png")
         XCTAssertNotEqual(preview.sourceImageURL, selectedImageURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: preview.previewImageURL.path))
-        XCTAssertEqual(preview.words.map(\.word), ["meadow", "ridge", "glow"])
+        XCTAssertEqual(
+            preview.words.map(\.word),
+            ["meadow", "ridge", "glow", "lantern", "harvest", "tranquil"]
+        )
+    }
+
+    @MainActor
+    func testGenerateGlassPreviewRequestsConfiguredVocabularyCount() async throws {
+        let tempDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let display = makeDisplay(id: "built-in")
+        var settings = AppSettings.default
+        settings.vocabularyWordCount = 6
+        let wordProvider = SpyImageFileWordProvider(words: previewWords(count: 6))
+        let container = AppContainer(
+            settingsStore: StaticSettingsStore(settings: settings),
+            secretStore: InMemorySecretStore(),
+            displayProvider: StaticTestDisplayProvider(displays: [display]),
+            userDefaults: userDefaults,
+            supportDirectory: tempDirectory,
+            previewSourceProvider: StaticPreviewSourceProvider(imageData: try makeTestPNG()),
+            previewWordProvider: wordProvider,
+            previewDesktopSetter: SpyDesktopWallpaperSetter()
+        )
+
+        let preview = try await container.generateGlassPreview()
+
+        XCTAssertEqual(preview.words.count, 6)
+        let targetCounts = await wordProvider.targetCounts
+        XCTAssertEqual(targetCounts, [6])
     }
 
     @MainActor
@@ -448,7 +480,7 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(status.target?.displayName, "studio-display")
         XCTAssertEqual(status.target?.pixelSize, PixelSize(width: 1440, height: 900))
         XCTAssertEqual(status.previewURL, preview.previewImageURL)
-        XCTAssertEqual(status.wordCount, 3)
+        XCTAssertEqual(status.wordCount, 6)
         XCTAssertTrue(status.primaryLine(now: Date()).hasPrefix("Done · "))
         XCTAssertEqual(status.sourceLine, "Source: Chosen image · beijing-night.png")
         XCTAssertEqual(status.targetLine, "Target: studio-display · 1440x900")
@@ -530,32 +562,35 @@ final class AppContainerTests: XCTestCase {
     }
 
     private func previewWords() -> [VocabularyItem] {
-        [
-            VocabularyItem(
-                word: "meadow",
+        previewWords(count: AppSettings.defaultVocabularyWordCount)
+    }
+
+    private func previewWords(count: Int) -> [VocabularyItem] {
+        let base = [
+            ("meadow", "草地"),
+            ("ridge", "山脊"),
+            ("glow", "微光"),
+            ("lantern", "灯笼"),
+            ("harvest", "收获"),
+            ("tranquil", "宁静的"),
+            ("orchard", "果园"),
+            ("pasture", "牧场"),
+            ("willow", "柳树"),
+            ("courtyard", "庭院"),
+            ("reflection", "倒影"),
+            ("bloom", "花开")
+        ]
+        return (0..<count).map { index in
+            let item = base[index % base.count]
+            return VocabularyItem(
+                word: index < base.count ? item.0 : "\(item.0)\(index)",
                 partOfSpeech: "noun",
-                zhDefinition: "草地",
-                example: "The meadow looks calm on the desktop.",
-                difficulty: 2,
-                sourceReason: "Test fixture."
-            ),
-            VocabularyItem(
-                word: "ridge",
-                partOfSpeech: "noun",
-                zhDefinition: "山脊",
-                example: "A ridge fades in the distance.",
-                difficulty: 2,
-                sourceReason: "Test fixture."
-            ),
-            VocabularyItem(
-                word: "glow",
-                partOfSpeech: "noun",
-                zhDefinition: "微光",
-                example: "A glow softens the wallpaper.",
+                zhDefinition: item.1,
+                example: "The \(item.0) fits the wallpaper.",
                 difficulty: 2,
                 sourceReason: "Test fixture."
             )
-        ]
+        }
     }
 
     private func assertLogOrder(
@@ -667,7 +702,7 @@ private struct StaticPreviewSourceProvider: SourceProvider {
 private struct StaticImageFileWordProvider: ImageFileWordProvider {
     var words: [VocabularyItem]
 
-    func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
+    func extractWords(from imageURL: URL, targetCount: Int) async throws -> [VocabularyItem] {
         words
     }
 }
@@ -675,8 +710,26 @@ private struct StaticImageFileWordProvider: ImageFileWordProvider {
 private struct FailingImageFileWordProvider: ImageFileWordProvider {
     var error: Error
 
-    func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
+    func extractWords(from imageURL: URL, targetCount: Int) async throws -> [VocabularyItem] {
         throw error
+    }
+}
+
+private actor SpyImageFileWordProvider: ImageFileWordProvider {
+    private let words: [VocabularyItem]
+    private var recordedTargetCounts: [Int] = []
+
+    init(words: [VocabularyItem]) {
+        self.words = words
+    }
+
+    func extractWords(from imageURL: URL, targetCount: Int) async throws -> [VocabularyItem] {
+        recordedTargetCounts.append(targetCount)
+        return words
+    }
+
+    var targetCounts: [Int] {
+        recordedTargetCounts
     }
 }
 

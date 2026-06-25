@@ -81,7 +81,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         guard canvasWidth > 0, canvasHeight > 0 else {
             throw RenderError.invalidDisplaySize
         }
-        guard (3...5).contains(words.count) else {
+        guard AppSettings.wallpaperWordLimitRange.contains(words.count) else {
             throw RenderError.invalidLayout
         }
 
@@ -192,16 +192,11 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
     }
 
     func makeGlassWordBadges(words: [VocabularyItem], in canvas: CGRect) -> [GlassWordBadge] {
-        let slots = [
-            CGPoint(x: 0.08, y: 0.10),
-            CGPoint(x: 0.62, y: 0.18),
-            CGPoint(x: 0.12, y: 0.70),
-            CGPoint(x: 0.66, y: 0.68),
-            CGPoint(x: 0.40, y: 0.43)
-        ]
+        let slots = glassBadgeSlots(for: words.count)
         let safeInset = max(24, min(canvas.width, canvas.height) * 0.035)
-        let primaryFontSize = min(max(canvas.width * 0.052, 40), 96)
-        let secondaryFontSize = min(max(canvas.width * 0.030, 24), 48)
+        let densityScale = glassBadgeDensityScale(for: words.count)
+        let primaryFontSize = max(28, min(max(canvas.width * 0.052, 40), 96) * densityScale)
+        let secondaryFontSize = max(18, min(max(canvas.width * 0.030, 24), 48) * densityScale)
 
         return words.enumerated().map { index, item in
             let role: GlassWordBadgeRole = index == 0 ? .primary : .secondary
@@ -214,7 +209,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 strokeAlpha: role == .primary ? 0.26 : 0.20,
                 textAlpha: role == .primary ? 0.80 : 0.66,
                 shadowAlpha: role == .primary ? 0.30 : 0.22,
-                cornerRadius: role == .primary ? 26 : 20
+                cornerRadius: (role == .primary ? 26 : 20) * densityScale
             )
             return GlassWordBadge(
                 displayText: displayText,
@@ -231,6 +226,44 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 ),
                 style: style
             )
+        }
+    }
+
+    private func glassBadgeSlots(for count: Int) -> [CGPoint] {
+        let defaultSlots = [
+            CGPoint(x: 0.08, y: 0.10),
+            CGPoint(x: 0.62, y: 0.18),
+            CGPoint(x: 0.12, y: 0.70),
+            CGPoint(x: 0.66, y: 0.68),
+            CGPoint(x: 0.40, y: 0.43),
+            CGPoint(x: 0.10, y: 0.40)
+        ]
+        let denseSlots = [
+            CGPoint(x: 0.07, y: 0.08),
+            CGPoint(x: 0.63, y: 0.10),
+            CGPoint(x: 0.36, y: 0.22),
+            CGPoint(x: 0.09, y: 0.31),
+            CGPoint(x: 0.67, y: 0.31),
+            CGPoint(x: 0.39, y: 0.45),
+            CGPoint(x: 0.10, y: 0.54),
+            CGPoint(x: 0.66, y: 0.53),
+            CGPoint(x: 0.13, y: 0.76),
+            CGPoint(x: 0.67, y: 0.74),
+            CGPoint(x: 0.38, y: 0.68),
+            CGPoint(x: 0.50, y: 0.84)
+        ]
+
+        return count <= defaultSlots.count ? defaultSlots : denseSlots
+    }
+
+    private func glassBadgeDensityScale(for count: Int) -> CGFloat {
+        switch count {
+        case 0...6:
+            return 1
+        case 7...9:
+            return 0.88
+        default:
+            return 0.76
         }
     }
 

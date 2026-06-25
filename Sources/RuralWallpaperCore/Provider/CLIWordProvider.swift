@@ -71,7 +71,13 @@ public enum CLIWordProviderError: Error, Equatable, LocalizedError, Sendable {
 }
 
 public protocol ImageFileWordProvider: Sendable {
-    func extractWords(from imageURL: URL) async throws -> [VocabularyItem]
+    func extractWords(from imageURL: URL, targetCount: Int) async throws -> [VocabularyItem]
+}
+
+public extension ImageFileWordProvider {
+    func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
+        try await extractWords(from: imageURL, targetCount: AppSettings.defaultVocabularyWordCount)
+    }
 }
 
 public struct CLIWordProvider: ImageFileWordProvider {
@@ -98,20 +104,25 @@ public struct CLIWordProvider: ImageFileWordProvider {
         self.logHandler = logHandler
     }
 
-    public func extractWords(from imageURL: URL) async throws -> [VocabularyItem] {
-        let prompt = Self.prompt(for: imageURL)
+    public func extractWords(from imageURL: URL, targetCount: Int) async throws -> [VocabularyItem] {
+        let targetCount = AppSettings.clampedVocabularyWordCount(targetCount)
+        let prompt = Self.prompt(for: imageURL, targetCount: targetCount)
         let output = try await run(prompt: prompt, imageURL: imageURL)
-        return try Self.parseWords(from: output)
+        return try Self.parseWords(from: output, expectedCount: targetCount)
     }
 
-    public static func parseWords(from output: String) throws -> [VocabularyItem] {
+    public static func parseWords(from output: String, expectedCount: Int? = nil) throws -> [VocabularyItem] {
         guard let jsonData = extractJSONObject(from: output).data(using: .utf8) else {
             throw CLIWordProviderError.invalidJSON
         }
 
         do {
             let response = try JSONDecoder().decode(WordExtractionResponse.self, from: jsonData)
-            guard (3...5).contains(response.words.count) else {
+            if let expectedCount {
+                guard response.words.count == expectedCount else {
+                    throw CLIWordProviderError.invalidWordCount(response.words.count)
+                }
+            } else if !(AppSettings.vocabularyWordCountRange).contains(response.words.count) {
                 throw CLIWordProviderError.invalidWordCount(response.words.count)
             }
             return response.words
@@ -258,15 +269,17 @@ public struct CLIWordProvider: ImageFileWordProvider {
         }
     }
 
-    private static func prompt(for imageURL: URL) -> String {
-        """
-        请观察这张 macOS 桌面壁纸并输出 3 到 5 个适合英语学习的英文词。
+    static func prompt(for imageURL: URL, targetCount: Int) -> String {
+        let targetCount = AppSettings.clampedVocabularyWordCount(targetCount)
+        return """
+        请观察这张 macOS 桌面壁纸并输出 \(targetCount) 个适合英语学习的英文词。
 
         图片路径：\(imageURL.path)
 
         规则：
         - 单词必须来自画面语义或氛围。
         - 优先常用、有画面感、适合桌面记忆的词。
+        - Return exactly \(targetCount) words.
         - 必须只输出 JSON，不要输出解释、Markdown 或额外文本。
         - JSON schema:
           {

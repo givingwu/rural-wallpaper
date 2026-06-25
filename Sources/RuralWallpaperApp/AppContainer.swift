@@ -406,10 +406,15 @@ final class AppContainer: ObservableObject {
 
             setGeneratePhase(.extractingWords, message: "Extracting words")
             let wordProvider = currentPreviewWordProvider(runID: runID)
-            logger.info("\(runLog)words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path)")
-            let words = try await wordProvider.extractWords(from: sourceURL)
+            let expectedWordCount = settings.vocabularyWordCount
+            logger.info("\(runLog)words.begin provider=\(type(of: wordProvider)) image=\(sourceURL.path) expectedWords=\(expectedWordCount)")
+            let words = try await wordProvider.extractWords(
+                from: sourceURL,
+                targetCount: expectedWordCount
+            )
             try Task.checkCancellation()
-            guard (3...5).contains(words.count) else {
+            guard words.count == expectedWordCount else {
+                logger.error("\(runLog)words.invalid_count expectedWords=\(expectedWordCount) actualWords=\(words.count)")
                 throw CLIWordProviderError.invalidWordCount(words.count)
             }
             updateGenerateStatus { status in
