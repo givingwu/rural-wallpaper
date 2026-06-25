@@ -55,8 +55,14 @@ struct MenuBarMenuModel: Equatable {
         if let sourceLine = generateStatus.sourceLine {
             items.append(MenuBarMenuItem(title: sourceLine, role: .statusDetail, isEnabled: false))
         }
+        if let workingSourceLine = generateStatus.workingSourceLine {
+            items.append(MenuBarMenuItem(title: workingSourceLine, role: .statusDetail, isEnabled: false))
+        }
         if let targetLine = generateStatus.targetLine {
             items.append(MenuBarMenuItem(title: targetLine, role: .statusDetail, isEnabled: false))
+        }
+        if let wordsLine = generateStatus.wordsLine {
+            items.append(MenuBarMenuItem(title: wordsLine, role: .statusDetail, isEnabled: false))
         }
         if !isGenerating, let previewLine = generateStatus.previewLine {
             items.append(MenuBarMenuItem(title: previewLine, role: .statusDetail, isEnabled: false))

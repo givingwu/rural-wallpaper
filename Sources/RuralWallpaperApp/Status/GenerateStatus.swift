@@ -114,6 +114,17 @@ struct GenerateSourceSummary: Equatable, Sendable {
 
         return workingURL?.lastPathComponent
     }
+
+    var workingLine: String? {
+        guard let workingURL else {
+            return nil
+        }
+        if workingURL == originalURL {
+            return nil
+        }
+
+        return "Working image: \(workingURL.lastPathComponent)"
+    }
 }
 
 struct GenerateTargetSummary: Equatable, Sendable {
@@ -149,7 +160,36 @@ struct GenerateStatus: Equatable, Sendable {
     var target: GenerateTargetSummary?
     var previewURL: URL?
     var wordCount: Int?
+    var selectedWordCount: Int?
     var errorSummary: String?
+
+    init(
+        runID: String?,
+        phase: GenerateStatusPhase,
+        mode: GenerateMode?,
+        startedAt: Date?,
+        finishedAt: Date?,
+        timeoutSeconds: TimeInterval?,
+        source: GenerateSourceSummary?,
+        target: GenerateTargetSummary?,
+        previewURL: URL?,
+        wordCount: Int?,
+        selectedWordCount: Int? = nil,
+        errorSummary: String?
+    ) {
+        self.runID = runID
+        self.phase = phase
+        self.mode = mode
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.timeoutSeconds = timeoutSeconds
+        self.source = source
+        self.target = target
+        self.previewURL = previewURL
+        self.wordCount = wordCount
+        self.selectedWordCount = selectedWordCount
+        self.errorSummary = errorSummary
+    }
 
     static func idle() -> GenerateStatus {
         GenerateStatus(
@@ -163,6 +203,7 @@ struct GenerateStatus: Equatable, Sendable {
             target: nil,
             previewURL: nil,
             wordCount: nil,
+            selectedWordCount: nil,
             errorSummary: nil
         )
     }
@@ -189,8 +230,23 @@ struct GenerateStatus: Equatable, Sendable {
         source?.menuLine
     }
 
+    var workingSourceLine: String? {
+        source?.workingLine
+    }
+
     var targetLine: String? {
         target?.menuLine
+    }
+
+    var wordsLine: String? {
+        guard let wordCount else {
+            return nil
+        }
+        if let selectedWordCount {
+            return "Words: \(wordCount) generated · \(selectedWordCount) visible"
+        }
+
+        return "Words: \(wordCount) generated"
     }
 
     var previewLine: String? {
@@ -223,7 +279,14 @@ struct GenerateStatus: Equatable, Sendable {
     }
 
     private func doneLine(now: Date) -> String {
-        let words = wordCount.map { " · \($0) words" } ?? ""
+        let words: String
+        if let wordCount, let selectedWordCount {
+            words = " · \(wordCount) generated · \(selectedWordCount) visible"
+        } else if let wordCount {
+            words = " · \(wordCount) words"
+        } else {
+            words = ""
+        }
         return "Done · \(elapsedText(now: now))\(words)"
     }
 

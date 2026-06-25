@@ -363,6 +363,7 @@ final class AppContainer: ObservableObject {
             target: nil,
             previewURL: nil,
             wordCount: nil,
+            selectedWordCount: nil,
             errorSummary: nil
         )
         do {
@@ -476,6 +477,7 @@ final class AppContainer: ObservableObject {
                 status.finishedAt = finishedAt
                 status.previewURL = previewURL
                 status.wordCount = words.count
+                status.selectedWordCount = selectedWords.count
                 status.errorSummary = nil
             }
             logger.info("\(runLog)preview.done id=\(preview.id.uuidString)")
@@ -582,6 +584,8 @@ final class AppContainer: ObservableObject {
         lastErrorMessage = "Preview updated with \(selectedWords.count) selected word(s)."
         updateGenerateStatus { status in
             status.previewURL = previewURL
+            status.wordCount = nextPreview.words.count
+            status.selectedWordCount = selectedWords.count
             status.errorSummary = nil
         }
         logger.info("\(runLog)selection.render.done bytes=\(rendered.pngData.count) path=\(previewURL.path)")
@@ -603,6 +607,7 @@ final class AppContainer: ObservableObject {
                 status.target = GenerateTargetSummary(display: preview.display)
                 status.previewURL = preview.previewImageURL
                 status.wordCount = preview.words.count
+                status.selectedWordCount = preview.selectedWords.count
             }
             logger.info("\(runLog)apply.wallpaper.set.begin path=\(preview.previewImageURL.path) display=\(preview.display.id) name=\(preview.display.friendlyName)")
             try previewDesktopSetter.setWallpaper(fileURL: preview.previewImageURL, for: preview.display)

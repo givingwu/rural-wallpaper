@@ -515,6 +515,9 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(container.activeGlassPreview, updatedPreview)
         XCTAssertEqual(container.lastGeneratedWallpaperURLs, [updatedPreview.previewImageURL])
         XCTAssertEqual(container.generateStatus.previewURL, updatedPreview.previewImageURL)
+        XCTAssertEqual(container.generateStatus.wordCount, 6)
+        XCTAssertEqual(container.generateStatus.selectedWordCount, 5)
+        XCTAssertEqual(container.generateStatus.wordsLine, "Words: 6 generated · 5 visible")
         XCTAssertEqual(container.lastErrorMessage, "Preview updated with 5 selected word(s).")
         let targetCounts = await wordProvider.targetCounts
         XCTAssertEqual(targetCounts, [6])
@@ -602,9 +605,12 @@ final class AppContainerTests: XCTestCase {
         XCTAssertEqual(status.target?.pixelSize, PixelSize(width: 1440, height: 900))
         XCTAssertEqual(status.previewURL, preview.previewImageURL)
         XCTAssertEqual(status.wordCount, 6)
+        XCTAssertEqual(status.selectedWordCount, 6)
         XCTAssertTrue(status.primaryLine(now: Date()).hasPrefix("Done · "))
         XCTAssertEqual(status.sourceLine, "Source: Chosen image · beijing-night.png")
+        XCTAssertEqual(status.workingSourceLine, "Working image: \(preview.sourceImageURL.lastPathComponent)")
         XCTAssertEqual(status.targetLine, "Target: studio-display · 1440x900")
+        XCTAssertEqual(status.wordsLine, "Words: 6 generated · 6 visible")
         XCTAssertEqual(status.previewLine, "Preview: \(preview.previewImageURL.lastPathComponent)")
     }
 

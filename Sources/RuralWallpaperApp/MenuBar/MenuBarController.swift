@@ -156,7 +156,7 @@ final class MenuBarController: NSObject {
 
         stack.addArrangedSubview(spinner)
         stack.addArrangedSubview(label)
-        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 28)
+        stack.frame = NSRect(x: 0, y: 0, width: 340, height: 28)
         item.view = stack
 
         return item

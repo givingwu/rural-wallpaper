@@ -71,4 +71,55 @@ final class MenuBarMenuModelTests: XCTestCase {
             } == true
         )
     }
+
+    func testDoneMenuShowsSourceWorkingImageAndWordCounts() {
+        let startedAt = Date(timeIntervalSince1970: 100)
+        let finishedAt = Date(timeIntervalSince1970: 108)
+        let originalURL = URL(fileURLWithPath: "/tmp/original-wallpaper.heic")
+        let workingURL = URL(fileURLWithPath: "/tmp/RuralWallpaper/source-built-in.png")
+        let previewURL = URL(fileURLWithPath: "/tmp/RuralWallpaper/glass-preview-built-in.png")
+        let status = GenerateStatus(
+            runID: "run-test",
+            phase: .done,
+            mode: .manual,
+            startedAt: startedAt,
+            finishedAt: finishedAt,
+            timeoutSeconds: 180,
+            source: GenerateSourceSummary(
+                kind: .screenWallpaper,
+                originalURL: originalURL,
+                workingURL: workingURL,
+                prompt: "Current desktop wallpaper"
+            ),
+            target: GenerateTargetSummary(
+                displayName: "Built-in Retina Display",
+                displayID: "built-in",
+                pixelSize: PixelSize(width: 2880, height: 1800)
+            ),
+            previewURL: previewURL,
+            wordCount: 24,
+            selectedWordCount: 6,
+            errorSummary: nil
+        )
+
+        let sections = MenuBarMenuModel.sections(
+            isGenerating: false,
+            hasLastPreview: true,
+            generateStatus: status,
+            now: Date(timeIntervalSince1970: 108)
+        )
+
+        XCTAssertEqual(
+            sections.first?.items.map(\.title),
+            [
+                "Generate Status",
+                "Done · 00:08 · 24 generated · 6 visible",
+                "Source: Screen wallpaper · original-wallpaper.heic",
+                "Working image: source-built-in.png",
+                "Target: Built-in Retina Display · 2880x1800",
+                "Words: 24 generated · 6 visible",
+                "Preview: glass-preview-built-in.png"
+            ]
+        )
+    }
 }
