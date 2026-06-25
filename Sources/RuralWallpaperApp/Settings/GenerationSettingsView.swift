@@ -7,9 +7,20 @@ struct GenerationSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle("Auto Update & Apply", isOn: $settings.autoUpdateEnabled)
-            Text("When enabled, Rural Wallpaper periodically generates a new preview from the selected display and applies it automatically.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+            Stepper(
+                value: $settings.vocabularyWordCount,
+                in: AppSettings.vocabularyWordCountRange
+            ) {
+                labeledValue("Generated Words", "\(settings.vocabularyWordCount)")
+            }
+
+            Stepper(
+                value: visibleWordLimitBinding,
+                in: visibleWordLimitRange
+            ) {
+                labeledValue("Visible on Wallpaper", "\(settings.wallpaperWordLimit)")
+            }
 
             Stepper(value: $settings.refreshIntervalHours, in: 1...168) {
                 labeledValue("Refresh", "\(settings.refreshIntervalHours) h")
@@ -35,6 +46,31 @@ struct GenerationSettingsView: View {
                 labeledValue("History Per Display", "\(settings.historyLimitPerDisplay)")
             }
         }
+        .onChange(of: settings.vocabularyWordCount) { _, newValue in
+            settings.wallpaperWordLimit = min(
+                settings.wallpaperWordLimit,
+                min(newValue, AppSettings.wallpaperWordLimitRange.upperBound)
+            )
+        }
+    }
+
+    private var visibleWordLimitRange: ClosedRange<Int> {
+        AppSettings.wallpaperWordLimitRange.lowerBound...min(
+            settings.vocabularyWordCount,
+            AppSettings.wallpaperWordLimitRange.upperBound
+        )
+    }
+
+    private var visibleWordLimitBinding: Binding<Int> {
+        Binding(
+            get: { settings.wallpaperWordLimit },
+            set: { value in
+                settings.wallpaperWordLimit = min(
+                    max(value, visibleWordLimitRange.lowerBound),
+                    visibleWordLimitRange.upperBound
+                )
+            }
+        )
     }
 
     private func labeledValue(_ label: String, _ value: String) -> some View {
