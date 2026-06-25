@@ -2,17 +2,18 @@
 
 [English README](README.md)
 
-Rural Wallpaper 是一个原生 macOS 菜单栏英语学习壁纸应用。它会读取当前桌面壁纸，调用本机 Codex 或 Claude Code CLI 从图片内容中识别 3-5 个英文词，再用接近 iOS / Liquid Glass 的低透明度玻璃词牌合成到壁纸上。词牌会显示英文词，并用小字显示中文词性和释义。手动生成时应用会先展示预览，只有点击 `Apply` 后才会真正替换桌面壁纸。
+Rural Wallpaper 是一个原生 macOS 菜单栏英语学习壁纸应用。它会读取当前桌面壁纸，调用本机 Codex 或 Claude Code CLI 从图片内容中识别可配置数量的英文词，再用接近 iOS / Liquid Glass 的低透明度玻璃词牌合成到壁纸上。词牌会显示英文词，并用小字显示中文词性和释义。手动生成时应用会先展示预览，只有点击 `Apply` 后才会真正替换桌面壁纸。
 
 ## 当前能力
 
 - 原生 macOS 菜单栏入口。
 - 读取当前桌面壁纸，并兼容 Pap.er 这类工具返回过期文件路径的情况。
 - 支持 `Choose Image...` 手动选择本地图片。
-- 使用本机 `codex` 或 `claude` CLI 识图并生成英文词。
+- 使用本机 `codex` 或 `claude` CLI 识图并生成英文词，默认生成 6 个，最多 24 个候选词。
 - 壁纸词牌显示英文词、中文词性和中文释义；例句和来源说明显示在预览右侧。
+- 预览窗口支持选择哪些候选词显示到壁纸上，最多显示 12 个词牌。
 - 支持多显示器预览目标选择。
-- 菜单顶部 `Generate Status` 展示当前阶段、耗时、图片来源、目标显示器和最近预览路径。
+- 菜单顶部 `Generate Status` 展示当前阶段、耗时、图片来源、工作图片、目标显示器、生成/显示词数和最近预览路径。
 - 先生成预览，再由用户确认 Apply。
 - 支持 `Auto Update & Apply`：按刷新间隔自动生成所选显示器的预览并自动应用。
 - 单页 grouped Settings：AI Provider、Display、Generation、Logs、About。
@@ -26,8 +27,8 @@ Generate Preview
   -> 解析选中的显示器
   -> 复制当前桌面壁纸或用户选择的图片
   -> 调用本机 CLI 提取英文词
-  -> 本地渲染带中文释义的 Liquid Glass 风格词牌
-  -> 展示预览和词卡
+  -> 本地渲染已选择的 Liquid Glass 风格词牌和中文释义
+  -> 展示预览和可选择的词卡
   -> 用户确认后 Apply
 ```
 
@@ -77,7 +78,7 @@ open dist/RuralWallpaper-*.app
 2. 先看 `Generate Status`，确认当前阶段、耗时、图片来源和目标显示器。
 3. 如果有多个屏幕，先在 `Select Display` 里选择目标显示器。
 4. 点击 `Generate Preview` 或 `Choose Image...`。
-5. 在预览窗口检查壁纸和词卡。
+5. 在预览窗口检查壁纸，并选择哪些词显示到壁纸上。
 6. 点击 `Apply` 后才会替换所选显示器的壁纸。
 
 菜单顺序：
@@ -97,11 +98,11 @@ open dist/RuralWallpaper-*.app
 
 ## Settings
 
-Settings 采用单页 grouped 布局：
+Settings 采用 Liquid Glass 风格侧边栏布局：
 
 - `AI Provider`：选择 Codex 或 Claude Code CLI，并测试 Provider。
 - `Display`：选择预览目标显示器和启用显示器。
-- `Generation`：配置 `Auto Update & Apply`、刷新频率、重试次数、布局候选数量、评分阈值和历史保留数量。
+- `Generation`：配置生成词数、壁纸显示词数、`Auto Update & Apply`、刷新频率、重试次数、布局候选数量、评分阈值和历史保留数量。
 - `Logs & Storage`：打开诊断日志。
 - `About`：显示当前应用和 Provider 摘要。
 
@@ -126,7 +127,7 @@ Settings 采用单页 grouped 布局：
 
 CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读取 CLI 的 stdout/stderr，避免 Codex 进度输出写满 pipe 后卡死；日志会记录 `cli.exit durationSeconds=...` 或 `cli.timeout ...`。
 
-生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、目标显示器分辨率、预览文件名和词数。日志诊断字段保持英文；source、file.write、CLI、render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
+生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、复制后的工作图片文件名、目标显示器分辨率、预览文件名，以及生成/显示词数。日志诊断字段保持英文；source、file.write、CLI、render、selection render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
 
 ## 打包
 
@@ -162,6 +163,7 @@ git push origin v0.1.0
 - CLI 未安装：安装并登录所选 CLI，例如 `codex` 或 `claude`。
 - Codex 执行太久：打开日志查看 `cli.exit durationSeconds=...` 和 `stderrBytes=...`；超过 180 秒会自动停止本次生成并提示超时。
 - 预览效果异常：打开日志，查看最新的 `source`、`file.write`、`words` 和 `render` 阶段。
+- 词数太多或太少：到 `Settings` -> `Generation` 调整 `Generated Words` 和 `Visible on Wallpaper`。
 - 手动生成后壁纸没有替换：手动流程是预览优先，需要点击 `Apply`；如果要自动替换，请开启 `Auto Update & Apply`。
 - 不确定用了哪张图片生成：先看菜单里的 `Generate Status`，或在日志中搜索最近的 `runID=...`。
 - 多显示器：生成前先确认菜单里的 `Select Display`。

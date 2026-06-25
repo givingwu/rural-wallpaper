@@ -2,17 +2,18 @@
 
 [中文说明](README_zh-CN.md)
 
-Rural Wallpaper is a native macOS menu bar app for English-learning wallpapers. It reads your current desktop wallpaper, asks a local AI CLI such as Codex or Claude Code to identify 3-5 English words from the image, renders subtle iOS / Liquid Glass-style word badges with small Chinese part-of-speech and definition text, and shows a preview before manual changes are applied.
+Rural Wallpaper is a native macOS menu bar app for English-learning wallpapers. It reads your current desktop wallpaper, asks a local AI CLI such as Codex or Claude Code to identify configurable English words from the image, renders subtle iOS / Liquid Glass-style word badges with small Chinese part-of-speech and definition text, and shows a preview before manual changes are applied.
 
 ## Features
 
 - Native macOS menu bar workflow.
 - Current desktop wallpaper source, with a fallback for stale Pap.er-style file paths.
 - Optional local image selection through `Choose Image...`.
-- Local AI CLI word extraction through `codex` or `claude`.
+- Local AI CLI word extraction through `codex` or `claude`, defaulting to 6 generated words and supporting up to 24 candidates.
 - Wallpaper overlay shows English words plus compact Chinese part-of-speech and definition text.
+- Preview word selection: choose which generated words are visible on the wallpaper, up to 12 visible badges.
 - Multi-display preview target selection.
-- Menu `Generate Status` area with live phase, elapsed time, source image, target display, and last preview path.
+- Menu `Generate Status` area with live phase, elapsed time, source image, working image, target display, generated/visible word counts, and last preview path.
 - Preview-first apply flow: the desktop is changed only after clicking `Apply`.
 - Optional `Auto Update & Apply` flow that periodically generates a new preview from the selected display and applies it automatically.
 - Grouped Settings window for provider, display, generation, logs, and app information.
@@ -26,8 +27,8 @@ Generate Preview
   -> Resolve selected display
   -> Copy current desktop wallpaper or selected image
   -> Ask local CLI to extract English vocabulary
-  -> Render Liquid Glass word badges with Chinese definitions locally
-  -> Show preview and word panel
+  -> Render selected Liquid Glass word badges with Chinese definitions locally
+  -> Show preview and selectable word panel
   -> Apply only after confirmation
 ```
 
@@ -77,7 +78,7 @@ Menu workflow:
 2. Check `Generate Status` for the current phase, elapsed time, source image, and target display.
 3. Pick a target display from `Select Display` if you have multiple screens.
 4. Click `Generate Preview` or `Choose Image...`.
-5. Review the generated wallpaper and word list.
+5. Review the generated wallpaper and choose which words are visible.
 6. Click `Apply` to set the wallpaper for the selected display.
 
 Menu order:
@@ -97,11 +98,11 @@ Shortcuts:
 
 ## Settings
 
-The Settings window is a single grouped page:
+The Settings window uses a Liquid Glass-style sidebar:
 
 - `AI Provider`: choose Codex or Claude Code CLI and test provider setup.
 - `Display`: choose the preview target display and enabled displays.
-- `Generation`: configure `Auto Update & Apply`, refresh interval, retry limits, layout candidates, score threshold, and history retention.
+- `Generation`: configure generated word count, visible word limit, `Auto Update & Apply`, refresh interval, retry limits, layout candidates, score threshold, and history retention.
 - `Logs & Storage`: open diagnostic logs.
 - `About`: current app and provider summary.
 
@@ -126,7 +127,7 @@ If the selected CLI itself is missing, the app shows a direct install reminder s
 
 CLI runs are capped at 180 seconds. The app continuously drains CLI stdout/stderr while it waits, then logs `cli.exit durationSeconds=...` or `cli.timeout ...` so stalled runs do not hang forever.
 
-During generation, `Generate Status` shows the current phase such as `Extracting words`, elapsed time, and the 180-second cap. After a run finishes, it shows whether the source was a screen wallpaper or chosen image, the exact source filename, the target display resolution, the preview filename, and the word count. Logs use English diagnostics and include a `runID=...` value on the detailed source, file write, CLI, render, preview, and apply lines for tracing one run end to end.
+During generation, `Generate Status` shows the current phase such as `Extracting words`, elapsed time, and the 180-second cap. After a run finishes, it shows whether the source was a screen wallpaper or chosen image, the exact source filename, the copied working image filename, the target display resolution, the preview filename, and generated/visible word counts. Logs use English diagnostics and include a `runID=...` value on the detailed source, file write, CLI, render, preview, selection render, and apply lines for tracing one run end to end.
 
 ## Packaging
 
@@ -160,6 +161,7 @@ The workflow tests the package, builds a release app, zips it, groups commits si
 - Missing current wallpaper file: the app searches the same directory for the newest readable image and logs the fallback.
 - CLI exits with `node: not found`: install Node or make sure your shell manager path is visible in the logged CLI path.
 - Preview looks wrong: use `Open Logs` and inspect the latest `source`, `file.write`, `words`, and `render` lines.
+- Too many or too few words: change `Settings` -> `Generation` -> `Generated Words` and `Visible on Wallpaper`.
 - Codex takes too long: inspect `cli.exit durationSeconds=...` and `stderrBytes=...` in `Open Logs`. Runs over 180 seconds are stopped and reported as a timeout.
 - Cannot tell which image was used: open the menu and check `Generate Status`, or search the latest matching `runID=...` in `Open Logs`.
 - Wallpaper was not replaced after manual generation: manual generation is preview-first; click `Apply`, or enable `Auto Update & Apply` for automatic replacement.
