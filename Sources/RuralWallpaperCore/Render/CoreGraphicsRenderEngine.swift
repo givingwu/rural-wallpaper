@@ -25,6 +25,15 @@ struct GlassWordBadge: Equatable, Sendable {
     var style: GlassWordBadgeStyle
 }
 
+private struct GlassWordBadgeAppearance {
+    var fillColor: NSColor
+    var strokeColor: NSColor
+    var innerStrokeColor: NSColor
+    var textColor: NSColor
+    var detailTextColor: NSColor
+    var textShadowColor: NSColor
+}
+
 public struct CoreGraphicsRenderEngine: RenderEngine {
     public init() {}
 
@@ -371,22 +380,63 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         _ badges: [GlassWordBadge],
         context: CGContext
     ) {
+        let appearances = badges.map { glassBadgeAppearance(for: $0, context: context) }
+
         context.saveGState()
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
 
-        for badge in badges {
-            drawGlassBadgeBackground(badge)
+        for (badge, appearance) in zip(badges, appearances) {
+            drawGlassBadgeBackground(badge, appearance: appearance)
         }
         NSGraphicsContext.restoreGraphicsState()
         context.restoreGState()
 
-        for badge in badges {
-            drawGlassBadgeText(badge, context: context)
+        for (badge, appearance) in zip(badges, appearances) {
+            drawGlassBadgeText(badge, appearance: appearance, context: context)
         }
     }
 
-    private func drawGlassBadgeBackground(_ badge: GlassWordBadge) {
+    private func glassBadgeAppearance(
+        for badge: GlassWordBadge,
+        context: CGContext
+    ) -> GlassWordBadgeAppearance {
+        let averageLuminance = averageLuminance(in: badge.rect, context: context) ?? 0
+        let usesDarkText = averageLuminance >= 0.72
+
+        if usesDarkText {
+            return GlassWordBadgeAppearance(
+                fillColor: NSColor.black.withAlphaComponent(
+                    badge.role == .primary ? 0.14 : 0.11
+                ),
+                strokeColor: NSColor.black.withAlphaComponent(
+                    badge.role == .primary ? 0.24 : 0.18
+                ),
+                innerStrokeColor: NSColor.white.withAlphaComponent(0.16),
+                textColor: NSColor.black.withAlphaComponent(
+                    badge.role == .primary ? 0.82 : 0.76
+                ),
+                detailTextColor: NSColor.black.withAlphaComponent(
+                    badge.role == .primary ? 0.56 : 0.50
+                ),
+                textShadowColor: NSColor.white.withAlphaComponent(0.35)
+            )
+        }
+
+        return GlassWordBadgeAppearance(
+            fillColor: NSColor.white.withAlphaComponent(badge.style.fillAlpha),
+            strokeColor: NSColor.white.withAlphaComponent(badge.style.strokeAlpha),
+            innerStrokeColor: NSColor.white.withAlphaComponent(0.08),
+            textColor: NSColor.white.withAlphaComponent(badge.style.textAlpha),
+            detailTextColor: NSColor.white.withAlphaComponent(badge.style.textAlpha * 0.58),
+            textShadowColor: NSColor.black.withAlphaComponent(badge.style.shadowAlpha)
+        )
+    }
+
+    private func drawGlassBadgeBackground(
+        _ badge: GlassWordBadge,
+        appearance: GlassWordBadgeAppearance
+    ) {
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(badge.style.shadowAlpha)
         shadow.shadowBlurRadius = badge.role == .primary ? 22 : 16
@@ -395,13 +445,13 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
 
         let radius = min(badge.style.cornerRadius, badge.rect.height / 2)
         let path = NSBezierPath(roundedRect: badge.rect, xRadius: radius, yRadius: radius)
-        NSColor.white.withAlphaComponent(badge.style.fillAlpha).setFill()
+        appearance.fillColor.setFill()
         path.fill()
 
         shadow.shadowColor = .clear
         shadow.set()
 
-        NSColor.white.withAlphaComponent(badge.style.strokeAlpha).setStroke()
+        appearance.strokeColor.setStroke()
         path.lineWidth = badge.role == .primary ? 1.0 : 0.8
         path.stroke()
 
@@ -410,12 +460,16 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
             xRadius: max(8, radius - 6),
             yRadius: max(8, radius - 6)
         )
-        NSColor.white.withAlphaComponent(0.08).setStroke()
+        appearance.innerStrokeColor.setStroke()
         highlight.lineWidth = 0.65
         highlight.stroke()
     }
 
-    private func drawGlassBadgeText(_ badge: GlassWordBadge, context: CGContext) {
+    private func drawGlassBadgeText(
+        _ badge: GlassWordBadge,
+        appearance: GlassWordBadgeAppearance,
+        context: CGContext
+    ) {
         let horizontalPadding = badge.role == .primary
             ? badge.style.fontSize * 0.42
             : badge.style.fontSize * 0.52
@@ -435,8 +489,8 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 ofSize: badge.style.fontSize,
                 weight: badge.role == .primary ? .bold : .semibold
             ),
-            color: NSColor.white.withAlphaComponent(badge.style.textAlpha),
-            shadowAlpha: badge.style.shadowAlpha,
+            color: appearance.textColor,
+            shadowColor: appearance.textShadowColor,
             shadowBlur: badge.role == .primary ? 13 : 9,
             shadowOffset: CGSize(width: 0, height: badge.role == .primary ? 2 : 1),
             context: context
@@ -456,8 +510,8 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
                 ofSize: glassBadgeDetailFontSize(role: badge.role, style: badge.style),
                 weight: .medium
             ),
-            color: NSColor.white.withAlphaComponent(badge.style.textAlpha * 0.58),
-            shadowAlpha: badge.style.shadowAlpha,
+            color: appearance.detailTextColor,
+            shadowColor: appearance.textShadowColor,
             shadowBlur: 7,
             shadowOffset: CGSize(width: 0, height: 1),
             context: context
@@ -481,7 +535,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         in rect: CGRect,
         font: NSFont,
         color: NSColor,
-        shadowAlpha: CGFloat,
+        shadowColor: NSColor,
         shadowBlur: CGFloat,
         shadowOffset: CGSize,
         context: CGContext
@@ -496,7 +550,7 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         context.setShadow(
             offset: shadowOffset,
             blur: shadowBlur,
-            color: NSColor.black.withAlphaComponent(shadowAlpha).cgColor
+            color: shadowColor.cgColor
         )
 
         let textColor = color.usingColorSpace(.deviceRGB)?.cgColor ?? color.cgColor
@@ -520,6 +574,40 @@ public struct CoreGraphicsRenderEngine: RenderEngine {
         let baselineY = rect.minY + max(0, (rect.height - ascent - descent) / 2) + descent
         context.textPosition = CGPoint(x: rect.minX, y: baselineY)
         CTLineDraw(line, context)
+    }
+
+    private func averageLuminance(in rect: CGRect, context: CGContext) -> CGFloat? {
+        guard let data = context.data else { return nil }
+
+        let width = context.width
+        let height = context.height
+        let minX = max(0, Int(rect.minX.rounded(.down)))
+        let maxX = min(width, Int(rect.maxX.rounded(.up)))
+        let minY = max(0, Int(rect.minY.rounded(.down)))
+        let maxY = min(height, Int(rect.maxY.rounded(.up)))
+        guard minX < maxX, minY < maxY else { return nil }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = context.bytesPerRow
+        let stepX = max(1, (maxX - minX) / 24)
+        let stepY = max(1, (maxY - minY) / 12)
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        var sampleCount = 0
+        var luminanceSum: CGFloat = 0
+
+        for y in stride(from: minY, to: maxY, by: stepY) {
+            for x in stride(from: minX, to: maxX, by: stepX) {
+                let offset = y * bytesPerRow + x * bytesPerPixel
+                let red = CGFloat(pixels[offset]) / 255
+                let green = CGFloat(pixels[offset + 1]) / 255
+                let blue = CGFloat(pixels[offset + 2]) / 255
+                luminanceSum += red * 0.2126 + green * 0.7152 + blue * 0.0722
+                sampleCount += 1
+            }
+        }
+
+        guard sampleCount > 0 else { return nil }
+        return luminanceSum / CGFloat(sampleCount)
     }
 
     private func makeTextRun(

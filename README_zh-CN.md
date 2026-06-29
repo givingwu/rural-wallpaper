@@ -11,6 +11,7 @@ Rural Wallpaper 是一个原生 macOS 菜单栏英语学习壁纸应用。它会
 - 支持 `Choose Image...` 手动选择本地图片。
 - 使用本机 `codex` 或 `claude` CLI 识图并生成英文词，默认生成 6 个，最多 24 个候选词。
 - 壁纸词牌显示英文词、中文词性和中文释义；例句和来源说明显示在预览右侧。
+- 词牌会根据背景亮度自动调整对比度，在白色或偏亮区域切换为深色文案和描边。
 - 预览窗口支持选择哪些候选词显示到壁纸上，最多显示 12 个词牌。
 - 支持多显示器预览目标选择。
 - 菜单顶部 `Generate Status` 展示当前阶段、耗时、图片来源、工作图片、目标显示器、生成/显示词数和最近预览路径。
@@ -163,6 +164,7 @@ git push origin v0.1.0
 - CLI 未安装：安装并登录所选 CLI，例如 `codex` 或 `claude`。
 - Codex 执行太久：打开日志查看 `cli.exit durationSeconds=...` 和 `stderrBytes=...`；超过 180 秒会自动停止本次生成并提示超时。
 - 预览效果异常：打开日志，查看最新的 `source`、`file.write`、`words` 和 `render` 阶段。
+- 亮色背景上文案不清晰：生成词牌会在亮区域自动切换为深色文案和描边。
 - 词数太多或太少：到 `Settings` -> `Generation` 调整 `Generated Words` 和 `Visible on Wallpaper`。
 - 手动生成后壁纸没有替换：手动流程是预览优先，需要点击 `Apply`；如果要自动替换，请开启 `Auto Update & Apply`。
 - 不确定用了哪张图片生成：先看菜单里的 `Generate Status`，或在日志中搜索最近的 `runID=...`。

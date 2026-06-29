@@ -50,6 +50,71 @@ final class RenderEngineTests: XCTestCase {
         )
     }
 
+    func testGlassOverlayUsesDarkReadableTextOnWhiteBackground() throws {
+        let display = makeDisplay(width: 640, height: 360)
+        let canvas = CGRect(
+            x: 0,
+            y: 0,
+            width: display.pixelSize.width,
+            height: display.pixelSize.height
+        )
+        let background = try makeSolidPNG(width: 640, height: 360, color: .white)
+        let engine = CoreGraphicsRenderEngine()
+        let words = Array(realisticVocabularyItems().prefix(3))
+
+        let rendered = try engine.renderGlassOverlay(
+            background: background,
+            words: words,
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+        let primaryBadge = try XCTUnwrap(
+            engine.makeGlassWordBadges(words: words, in: canvas).first
+        )
+        let darkPixelCount = badgeDarkPixelCount(in: output, badge: primaryBadge)
+
+        XCTAssertGreaterThan(
+            darkPixelCount,
+            120,
+            "white backgrounds should render enough dark glyph pixels for readable badge text"
+        )
+    }
+
+    func testGlassOverlayContrastSamplingMatchesRenderedBadgePosition() throws {
+        let display = makeDisplay(width: 640, height: 360)
+        let canvas = CGRect(
+            x: 0,
+            y: 0,
+            width: display.pixelSize.width,
+            height: display.pixelSize.height
+        )
+        let engine = CoreGraphicsRenderEngine()
+        let words = Array(realisticVocabularyItems().prefix(3))
+        let primaryBadge = try XCTUnwrap(
+            engine.makeGlassWordBadges(words: words, in: canvas).first
+        )
+        let background = try makeBadgeRegionPNG(
+            width: display.pixelSize.width,
+            height: display.pixelSize.height,
+            brightRect: primaryBadge.rect
+        )
+
+        let rendered = try engine.renderGlassOverlay(
+            background: background,
+            words: words,
+            display: display
+        )
+        let output = try decodePNG(rendered.pngData)
+        let badgeRect = primaryBadge.rect.integral
+        let mirroredBadgeRect = verticallyMirroredRect(badgeRect, image: output)
+
+        XCTAssertTrue(
+            darkPixelCount(in: output, cropRect: badgeRect) > 120
+                || readablePixelCount(in: output, cropRect: mirroredBadgeRect) > 120,
+            "contrast sampling should match whichever vertical orientation the badge text is rendered in"
+        )
+    }
+
     func testGlassOverlayUsesDistributedBadgesWithChineseDefinitions() throws {
         let canvas = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let engine = CoreGraphicsRenderEngine()
@@ -624,6 +689,17 @@ final class RenderEngineTests: XCTestCase {
         return try pngData(from: image)
     }
 
+    private func makeBadgeRegionPNG(width: Int, height: Int, brightRect: CGRect) throws -> Data {
+        let image = try makeImage(width: width, height: height) { context in
+            context.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(brightRect)
+        }
+
+        return try pngData(from: image)
+    }
+
     private func makeVerticalStripPNG(
         width: Int,
         height: Int,
@@ -737,12 +813,7 @@ final class RenderEngineTests: XCTestCase {
         badge: GlassWordBadge
     ) throws -> (left: Int, right: Int) {
         let rect = badge.rect.integral
-        let verticallyMirroredRect = CGRect(
-            x: rect.minX,
-            y: CGFloat(image.pixelsHigh) - rect.maxY,
-            width: rect.width,
-            height: rect.height
-        )
+        let verticallyMirroredRect = verticallyMirroredRect(rect, image: image)
         let bestRect = [rect, verticallyMirroredRect].max {
             readablePixelCount(in: image, cropRect: $0)
                 < readablePixelCount(in: image, cropRect: $1)
@@ -795,6 +866,39 @@ final class RenderEngineTests: XCTestCase {
         return bounds
     }
 
+    private func badgeDarkPixelCount(
+        in image: NSBitmapImageRep,
+        badge: GlassWordBadge
+    ) -> Int {
+        let rect = badge.rect.integral
+        let verticallyMirroredRect = verticallyMirroredRect(rect, image: image)
+
+        return max(
+            darkPixelCount(in: image, cropRect: rect),
+            darkPixelCount(in: image, cropRect: verticallyMirroredRect)
+        )
+    }
+
+    private func darkPixelCount(in image: NSBitmapImageRep, cropRect: CGRect) -> Int {
+        var count = 0
+        for y in clampedYRange(cropRect, image: image) {
+            for x in clampedXRange(cropRect, image: image) where isDarkPixel(image, x: x, y: y) {
+                count += 1
+            }
+        }
+
+        return count
+    }
+
+    private func verticallyMirroredRect(_ rect: CGRect, image: NSBitmapImageRep) -> CGRect {
+        CGRect(
+            x: rect.minX,
+            y: CGFloat(image.pixelsHigh) - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
     private func clampedXRange(_ rect: CGRect, image: NSBitmapImageRep) -> Range<Int> {
         max(0, Int(rect.minX))..<min(image.pixelsWide, Int(rect.maxX))
     }
@@ -812,6 +916,17 @@ final class RenderEngineTests: XCTestCase {
 
         let luminance = (color.redComponent + color.greenComponent + color.blueComponent) / 3
         return luminance > 0.56 && color.alphaComponent > 0.6
+    }
+
+    private func isDarkPixel(_ image: NSBitmapImageRep, x: Int, y: Int) -> Bool {
+        guard (0..<image.pixelsWide).contains(x),
+              (0..<image.pixelsHigh).contains(y),
+              let color = image.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+            return false
+        }
+
+        let luminance = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+        return luminance < 0.46 && color.alphaComponent > 0.6
     }
 
     private func brightPixelBounds(in image: NSBitmapImageRep) -> PixelBounds? {

@@ -11,6 +11,7 @@ Rural Wallpaper is a native macOS menu bar app for English-learning wallpapers. 
 - Optional local image selection through `Choose Image...`.
 - Local AI CLI word extraction through `codex` or `claude`, defaulting to 6 generated words and supporting up to 24 candidates.
 - Wallpaper overlay shows English words plus compact Chinese part-of-speech and definition text.
+- Adaptive badge contrast keeps generated text readable on bright or white wallpaper areas.
 - Preview word selection: choose which generated words are visible on the wallpaper, up to 12 visible badges.
 - Multi-display preview target selection.
 - Menu `Generate Status` area with live phase, elapsed time, source image, working image, target display, generated/visible word counts, and last preview path.
@@ -161,6 +162,7 @@ The workflow tests the package, builds a release app, zips it, groups commits si
 - Missing current wallpaper file: the app searches the same directory for the newest readable image and logs the fallback.
 - CLI exits with `node: not found`: install Node or make sure your shell manager path is visible in the logged CLI path.
 - Preview looks wrong: use `Open Logs` and inspect the latest `source`, `file.write`, `words`, and `render` lines.
+- Text looks unclear on bright backgrounds: generated badges automatically switch to darker text and outlines in bright regions.
 - Too many or too few words: change `Settings` -> `Generation` -> `Generated Words` and `Visible on Wallpaper`.
 - Codex takes too long: inspect `cli.exit durationSeconds=...` and `stderrBytes=...` in `Open Logs`. Runs over 180 seconds are stopped and reported as a timeout.
 - Cannot tell which image was used: open the menu and check `Generate Status`, or search the latest matching `runID=...` in `Open Logs`.
