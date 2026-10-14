@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conventions:
+    name: Automation checks
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release metadata and scripts
+        run: |
+          python3 scripts/check-version.py
+          for script in scripts/*.sh; do
+            bash -n "$script"
+          done
+      - name: Check workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+
+  macos:
+    name: macOS build and tests
+    if: ${{ !github.event.deleted }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = arm64
+          swift --version
+      - name: Run regression tests
+        run: swift test --quiet
+      - name: Build, sign, and verify app bundle
+        run: bash scripts/build-app.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: RuralWallpaper-macOS-arm64-${{ github.sha }}
+          path: dist/RuralWallpaper-macOS-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
