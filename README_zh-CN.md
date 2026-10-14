@@ -1,170 +1,59 @@
 # Rural Wallpaper
 
-[English README](README.md)
+[English](README.md) | 中文
 
-Rural Wallpaper 是一个原生 macOS 菜单栏英语学习壁纸应用。它会读取当前桌面壁纸，调用本机 Codex 或 Claude Code CLI 从图片内容中识别可配置数量的英文词，再用接近 iOS / Liquid Glass 的低透明度玻璃词牌合成到壁纸上。词牌会显示英文词，并用小字显示中文词性和释义。手动生成时应用会先展示预览，只有点击 `Apply` 后才会真正替换桌面壁纸。
+把桌面变成轻量的英语学习壁纸。Rural Wallpaper 是原生 macOS 菜单栏应用：它读取图片，通过本机已登录的 Codex 或 Claude Code CLI 提取实用词汇，生成预览后再由你决定是否应用。
 
-## 当前能力
+**macOS 14+ · Apple Silicon · Codex 或 Claude Code CLI**
 
-- 原生 macOS 菜单栏入口。
-- 读取当前桌面壁纸，并兼容 Pap.er 这类工具返回过期文件路径的情况。
-- 支持 `Choose Image...` 手动选择本地图片。
-- 使用本机 `codex` 或 `claude` CLI 识图并生成英文词，默认生成 6 个，最多 24 个候选词。
-- 壁纸词牌显示英文词、中文词性和中文释义；例句和来源说明显示在预览右侧。
-- 词牌会根据背景亮度自动调整对比度，在白色或偏亮区域切换为深色文案和描边。
-- 预览窗口支持选择哪些候选词显示到壁纸上，最多显示 12 个词牌。
-- 支持多显示器预览目标选择。
-- 菜单顶部 `Generate Status` 展示当前阶段、耗时、图片来源、工作图片、目标显示器、生成/显示词数和最近预览路径。
-- 先生成预览，再由用户确认 Apply。
-- 支持 `Auto Update & Apply`：按刷新间隔自动生成所选显示器的预览并自动应用。
-- 单页 grouped Settings：AI Provider、Display、Generation、Logs、About。
-- 日志记录 source 读取、文件写入、CLI、render、preview、apply 等细节步骤。
-- 支持通过 Git tag 自动发布 GitHub Release。
+[下载](https://github.com/givingwu/rural-wallpaper/releases) · [Provider 配置](docs/provider-setup.md) · [人工验证说明](docs/manual-verification.md)
 
-## 工作流程
+## 能做什么
 
-```text
-Generate Preview
-  -> 解析选中的显示器
-  -> 复制当前桌面壁纸或用户选择的图片
-  -> 调用本机 CLI 提取英文词
-  -> 本地渲染已选择的 Liquid Glass 风格词牌和中文释义
-  -> 展示预览和可选择的词卡
-  -> 用户确认后 Apply
-```
+- 使用指定显示器的当前壁纸，或选择本地图片。
+- 调用本机已登录的 CLI 提取可配置数量的英文词；应用不保存 API Key。
+- 生成带中文词性和释义的 Liquid Glass 风格词牌，并自动保持可读性。
+- 在替换桌面前选择展示的词并预览结果。
+- 支持多显示器、历史记录、详细日志和可选的自动更新。
 
-如果开启 `Auto Update & Apply`，应用会按配置间隔执行同一套所选显示器预览生成流程，并在生成成功后自动 Apply。
+## 快速开始
 
-生成文件目录：
+1. 从 [Releases](https://github.com/givingwu/rural-wallpaper/releases) 下载 `RuralWallpaper-macOS-arm64.zip`。
+2. 解压，将 `RuralWallpaper.app` 移到**应用程序**，然后打开。
+3. 在**设置**中选择 Codex 或 Claude Code，并确保对应 CLI 已安装、已登录。
+4. 选择显示器，点击 **Generate Preview**；检查预览并选择要显示的词，满意后点击 **Apply**。
 
-```bash
-~/Library/Application Support/RuralWallpaper/
-```
+当前预览版为 ad-hoc 签名，**尚未经过 Apple notarization**。若 macOS 找不到 CLI，请参考 [Provider 配置](docs/provider-setup.md)。
 
-日志路径：
+## 日常流程
 
-```bash
-~/Library/Application Support/RuralWallpaper/rural-wallpaper.log
-```
+`Generate Preview` 会复制选中的壁纸或图片，调用配置好的 CLI 生成词汇，再渲染预览；在你点击 **Apply** 前不会修改桌面。启用 **Auto Update & Apply** 后，应用会按设定间隔对所选显示器执行同一流程，并自动应用成功的预览。
 
-## 环境要求
+在 **Generate Status** 可查看当前阶段、来源图片、目标显示器和词数；**Open Logs** 会记录每次生成的 `runID`，可用于串联排查来源、渲染和应用过程。
 
-- macOS 14+
-- Swift 6 / Xcode Command Line Tools
-- 已登录可用的本机 `codex` 或 `claude` CLI
+## 设置
 
-## 使用方式
+- **AI Provider**：选择 Codex 或 Claude Code，并测试本机 CLI。
+- **Display**：选择预览目标和启用的显示器。
+- **Generation**：调整生成词数、可见词牌、布局、历史记录和自动更新。
+- **Logs & Storage**：打开诊断日志与生成文件。
 
-源码运行：
+若选中的显示器断开，应用会回退到主显示器，再回退到第一块可用显示器。预览只会应用到生成它的那块显示器。
 
-```bash
-swift run RuralWallpaperApp
-```
+## 构建与发版
 
-运行测试：
+需要 Swift 6 和 Xcode Command Line Tools。
 
-```bash
+```sh
 swift test
-```
-
-打开打包产物：
-
-```bash
-open dist/RuralWallpaper.app
-```
-
-菜单操作：
-
-1. 点击菜单栏里的 Rural Wallpaper 图标。
-2. 先看 `Generate Status`，确认当前阶段、耗时、图片来源和目标显示器。
-3. 如果有多个屏幕，先在 `Select Display` 里选择目标显示器。
-4. 点击 `Generate Preview` 或 `Choose Image...`。
-5. 在预览窗口检查壁纸，并选择哪些词显示到壁纸上。
-6. 点击 `Apply` 后才会替换所选显示器的壁纸。
-
-菜单顺序：
-
-1. `Generate Status`
-2. `Select Display`、`Choose Image`、`Generate Preview`
-3. `Open Last Preview`、`Open Logs`
-4. `Settings`、`Quit`
-
-快捷键：
-
-- `Command-G`：Generate Preview
-- `Command-O`：Choose Image
-- `Command-,`：Settings
-- `Command-L`：Open Logs
-- `Command-Q`：Quit
-
-## Settings
-
-Settings 采用 Liquid Glass 风格侧边栏布局：
-
-- `AI Provider`：选择 Codex 或 Claude Code CLI，并测试 Provider。
-- `Display`：选择预览目标显示器和启用显示器。
-- `Generation`：配置生成词数、壁纸显示词数、`Auto Update & Apply`、刷新频率、重试次数、布局候选数量、评分阈值和历史保留数量。
-- `Logs & Storage`：打开诊断日志。
-- `About`：显示当前应用和 Provider 摘要。
-
-## 多显示器行为
-
-`Generate Preview` 会使用当前选中的预览目标显示器。如果这个显示器已经断开，应用会回退到主显示器，再回退到第一块可用显示器。
-
-`Apply` 只会应用到生成该预览时使用的显示器。
-
-`Auto Update & Apply` 同样使用当前选中的预览目标显示器。
-
-## CLI Provider 配置
-
-应用不在界面中保存 OpenAI 或 Anthropic API Key，而是委托给本机已登录的 CLI：
-
-- Codex：`codex`
-- Claude Code：`claude`
-
-如果日志中出现 `node: not found`，请检查 `Open Logs` 中的 `cli.path` 是否包含真实 Node 安装路径。
-
-如果所选 CLI 本身未安装，应用会直接提示，例如：`未安装 Codex CLI。请先安装并登录 codex，然后重试。`
-
-CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读取 CLI 的 stdout/stderr，避免 Codex 进度输出写满 pipe 后卡死；日志会记录 `cli.exit durationSeconds=...` 或 `cli.timeout ...`。
-
-生成过程中，`Generate Status` 会显示 `Extracting words` 等当前阶段、已耗时和 180 秒上限。生成完成后，它会继续显示来源类型（屏幕墙纸或用户选择图片）、来源文件名、复制后的工作图片文件名、目标显示器分辨率、预览文件名，以及生成/显示词数。日志诊断字段保持英文；source、file.write、CLI、render、selection render、preview、apply 细节行都会带 `runID=...`，方便追踪一次完整生成。
-
-## 打包
-
-本地构建和打包：
-
-```bash
 bash scripts/build-app.sh
 ```
 
-构建脚本会先校验统一版本信息，生成 `AppIcon.icns`、写入 `.app`、完成签名，并把产物放在 `dist/`：
+已签名的 app 与安装包会写入 `dist/`。GitHub Actions 会在 Apple Silicon 上执行同样的测试和打包。提交到 `main` 的 Conventional Commit 会生成 Release Please PR；合并该 PR 后，将发布 app ZIP、源码 ZIP 与 SHA-256 校验文件。发布包尚未 notarize。
 
-```text
-RuralWallpaper.app
-RuralWallpaper-macOS-arm64.zip
-```
+## 帮助
 
-## GitHub 自动发版
-
-自动发版采用与项目标准一致的 Conventional Commit 流程：
-
-- 推送到 `main` 后，Release Please 会创建或更新一个包含下个语义化版本和自动生成说明的 Release PR。
-- 合并该 PR 后，会创建 draft GitHub Release 及其 `vX.Y.Z` tag。
-- 工作流会在 Apple Silicon 上针对该 tag 运行测试，打包已签名应用和源码，校验 SHA-256，再上传全部产物并发布。
-- draft 发布失败时，可从 **Actions → Release → Run workflow** 输入对应 tag 重试。
-
-请使用 `feat:`、`fix:`、`docs:` 等 Conventional Commit 前缀，以便正确决定版本号和整理 Release Notes。`version.txt`、Release Please manifest、app plist 与 Swift 运行时版本会被一致性校验。`v1.0.0` 之前的发布会标记为 prerelease。发布包含 `RuralWallpaper-macOS-arm64.zip`、`RuralWallpaper-source.zip` 和 `SHA256SUMS.txt`；应用为 ad-hoc 签名，尚未经过 Apple notarization。
-
-## 排障
-
-- 当前壁纸源文件不存在：应用会在同目录选择最新可读图片作为兜底，并写入日志。
-- CLI 报 `node: not found`：安装 Node，或确认 shell manager 的路径已出现在日志中的 `cli.path`。
-- CLI 未安装：安装并登录所选 CLI，例如 `codex` 或 `claude`。
-- Codex 执行太久：打开日志查看 `cli.exit durationSeconds=...` 和 `stderrBytes=...`；超过 180 秒会自动停止本次生成并提示超时。
-- 预览效果异常：打开日志，查看最新的 `source`、`file.write`、`words` 和 `render` 阶段。
-- 亮色背景上文案不清晰：生成词牌会在亮区域自动切换为深色文案和描边。
-- 词数太多或太少：到 `Settings` -> `Generation` 调整 `Generated Words` 和 `Visible on Wallpaper`。
-- 手动生成后壁纸没有替换：手动流程是预览优先，需要点击 `Apply`；如果要自动替换，请开启 `Auto Update & Apply`。
-- 不确定用了哪张图片生成：先看菜单里的 `Generate Status`，或在日志中搜索最近的 `runID=...`。
-- 多显示器：生成前先确认菜单里的 `Select Display`。
+- 找不到 CLI：按 [Provider 配置](docs/provider-setup.md) 检查，并在 **Open Logs** 查看 `cli.path`。
+- 找不到壁纸源文件：应用会在同目录使用最新的可读图片，并在日志记录回退行为。
+- 预览不清晰或词不合适：重新生成、调整可见词，或修改 Generation 设置。
+- 需要完整排障信息：查看 [人工验证说明](docs/manual-verification.md)，并在日志中搜索最近的 `runID`。
