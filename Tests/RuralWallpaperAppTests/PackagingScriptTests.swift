@@ -38,6 +38,12 @@ final class PackagingScriptTests: XCTestCase {
         let ciSource = try String(contentsOf: ciWorkflow, encoding: .utf8)
         XCTAssertTrue(ciSource.contains("swift test --quiet"))
         XCTAssertTrue(ciSource.contains("scripts/build-app.sh"))
+
+        let releaseConfig = try String(
+            contentsOf: root.appendingPathComponent("release-please-config.json"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(releaseConfig.contains("\"package-name\": \"RuralWallpaper\""))
     }
 
     private func repositoryRoot() -> URL {
