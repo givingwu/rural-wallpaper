@@ -70,7 +70,7 @@ swift test
 打开打包产物：
 
 ```bash
-open dist/RuralWallpaper-*.app
+open dist/RuralWallpaper.app
 ```
 
 菜单操作：
@@ -135,27 +135,26 @@ CLI 单次执行默认最多等待 180 秒。应用会在等待期间持续读�
 本地构建和打包：
 
 ```bash
-swift build -c release
-scripts/package-macos.sh "$(date +%Y%m%d-%H%M%S)"
+bash scripts/build-app.sh
 ```
 
-打包脚本会生成 `AppIcon.icns`，写入 `.app`，完成签名，并把产物放在 `dist/`：
+构建脚本会先校验统一版本信息，生成 `AppIcon.icns`、写入 `.app`、完成签名，并把产物放在 `dist/`：
 
 ```text
-RuralWallpaper-<timestamp>.app
-RuralWallpaper-<timestamp>.zip
+RuralWallpaper.app
+RuralWallpaper-macOS-arm64.zip
 ```
 
 ## GitHub 自动发版
 
-推送 `v*` tag 会触发 GitHub Release：
+自动发版采用与项目标准一致的 Conventional Commit 流程：
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+- 推送到 `main` 后，Release Please 会创建或更新一个包含下个语义化版本和自动生成说明的 Release PR。
+- 合并该 PR 后，会创建 draft GitHub Release 及其 `vX.Y.Z` tag。
+- 工作流会在 Apple Silicon 上针对该 tag 运行测试，打包已签名应用和源码，校验 SHA-256，再上传全部产物并发布。
+- draft 发布失败时，可从 **Actions → Release → Run workflow** 输入对应 tag 重试。
 
-工作流会运行测试、构建 release app、压缩 zip、按 commit 类型分组生成 release notes，并把 zip 上传到 GitHub Release。
+请使用 `feat:`、`fix:`、`docs:` 等 Conventional Commit 前缀，以便正确决定版本号和整理 Release Notes。`version.txt`、Release Please manifest、app plist 与 Swift 运行时版本会被一致性校验。`v1.0.0` 之前的发布会标记为 prerelease。发布包含 `RuralWallpaper-macOS-arm64.zip`、`RuralWallpaper-source.zip` 和 `SHA256SUMS.txt`；应用为 ad-hoc 签名，尚未经过 Apple notarization。
 
 ## 排障
 

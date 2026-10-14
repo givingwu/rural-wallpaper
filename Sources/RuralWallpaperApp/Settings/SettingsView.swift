@@ -134,7 +134,7 @@ struct SettingsView: View {
             settingsGroup {
                 VStack(alignment: .leading, spacing: 10) {
                     labeledValue("App", "Rural Wallpaper")
-                    labeledValue("Version", "0.1.0")
+                    labeledValue("Version", RuralWallpaperCore.version)
                     labeledValue("Provider", "\(provider.cliCommand.rawValue)")
                 }
             }

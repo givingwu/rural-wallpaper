@@ -70,7 +70,7 @@ swift test
 Open a packaged build:
 
 ```bash
-open dist/RuralWallpaper-*.app
+open dist/RuralWallpaper.app
 ```
 
 Menu workflow:
@@ -135,27 +135,26 @@ During generation, `Generate Status` shows the current phase such as `Extracting
 Build and package locally:
 
 ```bash
-swift build -c release
-scripts/package-macos.sh "$(date +%Y%m%d-%H%M%S)"
+bash scripts/build-app.sh
 ```
 
-The packaging script generates `AppIcon.icns`, embeds it in the `.app`, signs the bundle, and writes artifacts to `dist/`:
+The build script validates the unified version metadata, generates `AppIcon.icns`, embeds it in the `.app`, signs the bundle, and writes artifacts to `dist/`:
 
 ```text
-RuralWallpaper-<timestamp>.app
-RuralWallpaper-<timestamp>.zip
+RuralWallpaper.app
+RuralWallpaper-macOS-arm64.zip
 ```
 
 ## GitHub Releases
 
-Pushing a tag matching `v*` triggers the release workflow:
+Release automation follows the conventional-commit workflow used by the project standard:
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+- A push to `main` creates or updates a Release Please PR with the next semantic version and generated notes.
+- Merging that PR creates a draft GitHub Release and its `vX.Y.Z` tag.
+- The workflow tests the exact tag on Apple Silicon, packages the signed app and source archive, verifies SHA-256 checksums, uploads all assets, then publishes the release.
+- Re-run a failed draft release from **Actions → Release → Run workflow**, entering its tag.
 
-The workflow tests the package, builds a release app, zips it, groups commits since the previous tag, and publishes a GitHub Release with the zip attached.
+Use Conventional Commit prefixes such as `feat:`, `fix:`, and `docs:` so the release proposal selects the correct version bump and groups its notes. Versions are checked across `version.txt`, the Release Please manifest, the app plist, and the Swift runtime value. Releases under `v1.0.0` are marked as prereleases. Published assets include `RuralWallpaper-macOS-arm64.zip`, `RuralWallpaper-source.zip`, and `SHA256SUMS.txt`; the app is ad-hoc signed and not Apple-notarized.
 
 ## Troubleshooting
 
