@@ -23,6 +23,13 @@ final class PackagingScriptTests: XCTestCase {
 
         let plistSource = try String(contentsOf: infoPlist, encoding: .utf8)
         XCTAssertTrue(plistSource.contains("CFBundleIconFile"))
+        XCTAssertTrue(plistSource.contains("x-release-please-version"))
+
+        let coreVersionSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/RuralWallpaperCore/RuralWallpaperCore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(coreVersionSource.contains("x-release-please-version"))
 
         let workflowSource = try String(contentsOf: workflow, encoding: .utf8)
         XCTAssertTrue(workflowSource.contains("scripts/package-release.sh"))
@@ -31,6 +38,12 @@ final class PackagingScriptTests: XCTestCase {
         let ciSource = try String(contentsOf: ciWorkflow, encoding: .utf8)
         XCTAssertTrue(ciSource.contains("swift test --quiet"))
         XCTAssertTrue(ciSource.contains("scripts/build-app.sh"))
+
+        let releaseConfig = try String(
+            contentsOf: root.appendingPathComponent("release-please-config.json"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(releaseConfig.contains("\"package-name\": \"RuralWallpaper\""))
     }
 
     private func repositoryRoot() -> URL {

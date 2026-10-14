@@ -4,14 +4,13 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "Rural Wallpaper",
+      "package-name": "RuralWallpaper",
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
       "draft": true,
       "force-tag-creation": true,
       "prerelease": true,
       "extra-files": [
-        { "type": "generic", "path": "version.txt" },
         { "type": "generic", "path": "Resources/Info.plist" },
         { "type": "generic", "path": "Sources/RuralWallpaperCore/RuralWallpaperCore.swift" }
       ]
